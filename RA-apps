@@ -1,0 +1,291 @@
+# Setup
+
+import requests
+from bs4 import BeautifulSoup as bs
+import pandas as pd
+
+# Nested dictionary describing the request process for each recruitment website
+
+unis = {
+'imperial': {'url':'https://www.imperial.ac.uk/jobs/search/?keywords=research&salary_max=0&root_url=/jobs/&quantity=75&start=0&page=5','simple_get':1,'bs':1,'result_type':'other','company_code':'na','simple_count':'-','get_2':1,'simple_get_2':1,'prefix':'other','base_url':'https://www.imperial.ac.uk'},
+'kcl_old': {'url': 'https://my.corehr.com/pls/kingrecruit/erq_search_version_4.start_search_with_params','simple_get':0,'bs':1,'result_type':'corehr','company_code':'1','simple_count':1,'get_2':1,'simple_get_2':1,'prefix':'-','base_url':'kingrecruit'},
+'kcl_new': {'url': 'https://jobs.kcl.ac.uk/gb/en/c/research-jobs','simple_get':1,'bs':0,'result_type':'other','company_code':'na','simple_count':1,'get_2':1,'simple_get_2':1,'prefix':'kcl_new','base_url':'na'},
+'ucl': {'url': 'https://atsv7.wcn.co.uk/search_engine/jobs.cgi?owner=5041178&ownertype=fair&brand_id=0&register_job_alerts=&submitSearchForm=1&vac_xtra5041178.50_5041178=-&vactype=-&location_code=-&vacfirm.vactitle=research&job_ref_code=&posting_code=224&submitSearchForm=search&reqsig=1592472359-72560a35a1fdbf46014fe390270361bb12f37fe6','simple_get':'s','bs':1,'result_type':'default','company_code':'na','simple_count':1,'get_2':1,'simple_get_2':0,'prefix':0,'base_url':'na'},
+'qmul': {'url': 'https://webapps2.is.qmul.ac.uk/jobs/jobs.action;jsessionid=83C746E20A119767DA43DCA699EA4B7B?classID=1','simple_get':1,'bs':1,'result_type':'default','company_code':'na','simple_count':1,'get_2':1,'simple_get_2':1,'prefix':1,'base_url':'https://webapps2.is.qmul.ac.uk/jobs/'},
+'crick': {'url': 'https://my.corehr.com/pls/frckrecruit/erq_search_package.search_form?p_company=1&p_internal_external=E','simple_get':1,'bs':1,'result_type':'corehr','company_code':'1','simple_count':1,'get_2':1,'simple_get_2':1,'prefix':'-','base_url':'frckrecruit'},
+'st_georges': {'url': 'https://jobs.sgul.ac.uk/vacancies.aspx?cat=932','simple_get':1,'bs':1,'result_type':'default','company_code':'na','simple_count':1,'get_2':1,'simple_get_2':0,'prefix':1,'base_url':'https://jobs.sgul.ac.uk/'},
+'rhol': {'url': 'https://jobs.royalholloway.ac.uk/vacancies.aspx?cat=930','simple_get':1,'bs':1,'result_type':'default','company_code':'na','simple_count':1,'get_2':0,'simple_get_2':'na','prefix':'na','base_url':'na'},
+'cam': {'url': 'https://www.jobs.cam.ac.uk/job/?category=2','simple_get':1,'bs':1,'result_type':'default','company_code':'na','simple_count':1,'get_2':1,'simple_get_2':1,'prefix':1, 'base_url':'https://www.jobs.cam.ac.uk'},
+'ox': {'url': 'https://my.corehr.com/pls/uoxrecruit/erq_search_version_4.start_search_with_params','simple_get':0,'bs':1,'result_type':'corehr','company_code':'10','simple_count':1,'get_2':1,'simple_get_2':1,'prefix':'-','base_url':'uoxrecruit'},
+'bath': {'url':'https://www.bath.ac.uk/jobs/vacancies.aspx?cat=391','simple_get':1,'bs':1,'result_type':'default','company_code':'na','simple_count':1,'get_2':1,'simple_get_2':1,'prefix':1,'base_url':'https://www.bath.ac.uk/jobs/'},
+'bristol': {'url':'http://www.bristol.ac.uk/jobs/find/list.html?page=details.html&ID=Q50FK026203F3VBQBV7V77V83&LOV4=8100,8102&LOV3=8491,8492,8165&keywords=research&Resultsperpage=20&lg=UK&mask=uobext&pagenum=1&option=28&sort=DESC','simple_get':1,'bs':0,'result_type':'-','company_code':'na','simple_count':0,'get_2':0,'simple_get_2':'na','prefix':'na','base_url':'na'},
+'southampton': {'url': 'https://jobs.soton.ac.uk/vacancies.aspx?cat=150','simple_get':1,'bs':0,'result_type':'-','company_code':'na','simple_count':0,'get_2':0,'simple_get_2':'na','prefix':'na','base_url':'na'},
+'warwick': {'url': 'https://atsv7.wcn.co.uk/search_engine/jobs.cgi?owner=5062452&ownertype=fair&brand_id=0&register_job_alerts=&submitSearchForm=1&vac_xtra5062452.81_5062452=239895&vac_xtra5062452.52_5062452=-&vac_xtra5062452.89_5062452=-&posting_code=635&submitSearchForm=Search&reqsig=1592579505-72382bd611164bae840c90d95b67fe47ed2dee78','simple_get':'s','bs':1,'result_type':'default','company_code':'na','simple_count':1,'get_2':1,'simple_get_2':0,'prefix':0,'base_url':'na'},
+'nott': {'url': 'https://www.nottingham.ac.uk/jobs/currentvacancies/search/research','simple_get':1,'bs':1,'result_type':'default','company_code':'na','simple_count':1,'get_2':1,'simple_get_2':1,'prefix':'nott','base_url':'https://www.nottingham.ac.uk/jobs/currentvacancies'},
+'liv': {'url': 'https://my.corehr.com/pls/ulivrecruit/erq_search_version_4.start_search_with_params','simple_get':0,'bs':1,'result_type':'corehr','company_code':'1','simple_count':1,'get_2':1,'simple_get_2':1,'prefix':'-','base_url':'ulivrecruit'},
+'manc': {'url': 'https://www.jobs.manchester.ac.uk/vacancies.aspx?chkCategory=3','simple_get':1,'bs':1,'result_type':'other','company_code':'na','simple_count':1,'get_2':1,'simple_get_2':1,'prefix':1,'base_url':'https://www.jobs.manchester.ac.uk/'},
+'leeds': {'url': 'https://jobs.leeds.ac.uk/vacancies.aspx?cat=205','simple_get':1,'bs':1,'result_type':'default','company_code':'na','simple_count':1,'get_2':1,'simple_get_2':1,'prefix':1,'base_url':'https://jobs.leeds.ac.uk/'},
+'york': {'url': 'https://jobs.york.ac.uk/wd/plsql/wd_portal.list?p_web_site_id=3885&p_function=map&p_class_type=Role%20type&p_class_value=Research&p_title=Research%20jobs','simple_get':1,'bs':0,'result_type':'-','company_code':'na','simple_count':0,'get_2':0,'simple_get_2':'na','prefix':'na','base_url':'na'},
+'newcastle': {'url': 'https://jobs.ncl.ac.uk/search/?createNewAlert=false&q=research&locationsearch=&optionsFacetsDD_customfield3=&optionsFacetsDD_facility=&optionsFacetsDD_dept=&optionsFacetsDD_customfield2=&optionsFacetsDD_location=','simple_get':1,'bs':1,'result_type':'other','company_code':'na','simple_count':1,'get_2':1,'simple_get_2':1,'prefix':1,'base_url':'https://jobs.ncl.ac.uk'},
+'cardiff': {'url': 'https://krb-sjobs.brassring.com/TGnewUI/Search/Home/HomeWithPreLoad?partnerid=30011&siteid=5460&PageType=searchResults&SearchType=linkquery&LinkID=6#keyWordSearch=&locationSearch=','simple_get':1,'bs':0,'result_type':'-','company_code':'na','simple_count':1,'get_2':1,'simple_get_2':1,'prefix':'cardiff','base_url':'na'},
+'cardiff_mrc': {'url': 'https://www.cardiff.ac.uk/mrc-centre-neuropsychiatric-genetics-genomics/about/current-vacancies','simple_get':1,'bs':1,'result_type':'default','company_code':'na','simple_count':1,'get_2':1,'simple_get_2':1,'prefix':0,'base_url':'na'},
+'exeter': {'url': 'https://jobs.exeter.ac.uk/hrpr_webrecruitment/wrd/run/ETREC105GF?USESSION=5B703E6554A0456EA9F710D000946D2E&WVID=3817591jNg&LANG=USA','simple_get':0,'bs':1,'result_type':'other','company_code':'na','simple_count':1,'get_2':1,'simple_get_2':'-','prefix':1,'base_url':'https://jobs.exeter.ac.uk/hrpr_webrecruitment/wrd/run/'},
+'queens': {'url':'http://www.qub.ac.uk/sites/QUBJobVacancies/ResearchJobs/','simple_get':1,'bs':1,'result_type':'other','company_code':'na','simple_count':'queens','get_2':1,'simple_get_2':1,'prefix':'queens','base_url':'na'}
+}
+
+# Getting html
+# 'Get' requests
+for i in unis:
+    if unis[i]['simple_get'] == 1:
+        unis[i]['html'] = requests.get(unis[i]['url']).text
+
+# Session requests 
+s = requests.Session()
+for i in unis:
+    if unis[i]['simple_get'] == 's':
+        unis[i]['html'] = s.get(unis[i]['url']).text
+        unis[i]['html'] = s.get(unis[i]['url']).text
+
+# 'Post' requests
+unis['kcl_old']['html'] = requests.post(unis['kcl_old']['url'], data={'p_company':1,'p_internal_external':'E','p_display_in_irish':'N','p_competition_type': 'MA','p_department':'ALLOPTIONS','p_force_type':'E'} ).text
+unis['ox']['html'] = requests.post(unis['ox']['url'], data={'p_company': '10','p_internal_external': 'E','p_display_in_irish': 'N','p_department': 'ALLOPTIONS','p_competition_type': 'RE','p_force_type': 'E'}).text
+unis['liv']['html'] = requests.post(unis['liv']['url'], data={'p_company': '1','p_internal_external': 'E','p_display_in_irish': 'N','p_department': 'ALLOPTIONS','p_competition_type': 'ARON','p_force_type': 'E'}).text
+
+unis['exeter']['html'] = requests.post(unis['exeter']['url'], data={'%.OUTER_DIV.DIV.1': 'L7HjUUVLqz1o0XRCIryMNA2R5Suwzo3bEUeNavFQRPQ=;new;;',
+'WVID.VAC_SRCHUSP.DUMMY.1-1': '3817591jNg','VAC_TYPES.VAC_SRCHUSP.DUMMY.1-1': '5979502cQ2','ORDER_BY.VAC_SRCHUSP.DUMMY.1-1': 'VACANCY_D',
+'RESULTS_PP.VAC_SRCHUSP.DUMMY.1-1': '10','%.VAC_SRCHUSP.DUMMY.1-1': 'DwyzZgw1KSX5OrRSrY3KhipFBH1J57FdOELOGP+7kGY=;new;;',
+'BU_SEARCH.FRM_BUTTON.ET_BASE.1-1': 'Search','%.FRM_BUTTON.ET_BASE.1-1': 'L/GhiYAy+lzB+XOutnZVT55svnjuAb+sbWErKtv412Y=;new;;','HID_UUID.STD_HID_FLDS.ET_BASE.1-1': '4278F30F-863C-42D9-A853-F93FBCB6661F','HID_RESUBMIT.STD_HID_FLDS.ET_BASE.1-1': 'C72E60FF-C3E3-449F-80DA-61834F1AB9FC','WVID.STD_HID_FLDS.ET_BASE.1-1': '3817591jNg',
+'rQ4JyZoEl45tUhEeCs4NzrVvtChN3dpVkprlp5DYnfs=;new;;%.OUTER_DIV.DIV.1': 'L7HjUUVLqz1o0XRCIryMNA2R5Suwzo3bEUeNavFQRPQ=;new;;'}, headers = {'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9','Accept-Encoding': 'gzip, deflate, br','Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8','Cache-Control': 'max-age=0',
+'Connection': 'keep-alive','Content-Length': '1160','Content-Type': 'application/x-www-form-urlencoded','Host': 'jobs.exeter.ac.uk','Origin': 'https://jobs.exeter.ac.uk','Referer':'https://jobs.exeter.ac.uk/hrpr_webrecruitment/wrd/run/etrec105gf.open?wvid=3817591jNg','Sec-Fetch-Dest': 'document','Sec-Fetch-Mode': 'navigate','Sec-Fetch-Site': 'same-origin','Sec-Fetch-User': '?1','Upgrade-Insecure-Requests': '1','User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.89 Safari/537.36'}).text
+
+# Getting BeautifulSoup
+for i in unis:
+    if unis[i]['bs'] == 1:
+        unis[i]['html'] = bs(unis[i]['html'], 'html.parser')
+
+# Getting job search results
+# 'Default' and 'corehr' result types
+for i in unis:
+    if unis[i]['result_type'] == 'default':
+        unis[i]['result'] = unis[i]['html'].findAll('a')
+    if unis[i]['result_type'] == 'corehr':
+        unis[i]['result'] = unis[i]['html'].findAll('a', {'class':'erq_searchv4_big_anchor'})
+
+# 'Other' result types
+unis['imperial']['result'] = unis['imperial']['html'].findAll('h3', {"class":"job-title"})
+unis['manc']['result'] = unis['manc']['html'].findAll('a',{"class":"JT-header"})
+unis['newcastle']['result'] = unis['newcastle']['html'].findAll('a', {"class":"jobTitle-link"})
+unis['newcastle']['result'] = list(dict.fromkeys(unis['newcastle']['result']))
+split = unis['cardiff']['html'].replace('Facets','Questions').split('Questions'); results = []
+for i in range(0,len(split)):
+    if ( 'Research Assistant' in split[i] ) and 'Internal' not in split[i]:
+        results.append(split[i])
+unis['cardiff']['result'] = results
+unis['exeter']['result'] = unis['exeter']['html'].findAll('a', {"class":"job-result-title"})
+split = unis['kcl_new']['html'].replace('cityStateCountry','cityStattCountry').replace('aggregations','cityState').split('cityState')
+results = []
+for i in range(0,len(split)):
+    if ( 'Research Assistant' in split[i] ) and 'INTERNAL' not in split[i] and 'Postdoctoral' not in split[i]:
+        results.append(split[i])
+unis['kcl_new']['result'] = results
+unis['queens']['result'] = 'queens'
+unis['queens']['text'] = unis['queens']['html'].findAll('h3', {"class":"alt"})
+unis['queens']['hrefs'] = unis['queens']['html'].findAll('div', {"class":"column colspan-8"})
+
+# Not getting results
+for i in ['bristol', 'southampton', 'york']:
+    unis[i]['result'] = 'na'
+
+# Checking results for keywords
+for i in unis:
+    if unis[i]['result'] != None and unis[i]['result'] != 'na' and i != 'cardiff' and i != 'kcl_new' and i != 'queens' and i != 'imperial':
+        unis[i]['result'] = [i for i in unis[i]['result'] if "Research Assistant" in i.text]
+        unis[i]['result'] = [i for i in unis[i]['result'] if "Postdoctoral" not in i.text and "Post Doctoral" not in i.text and "Post-Doctoral" not in i.text and "Internal" not in i.text and "INTERNAL" not in i.text]
+    if unis[i]['result'] == "queens":
+        unis[i]['text'] = [i for i in unis[i]['text'] if "Research Assistant" in i.text]; unis[i]['text'] = [i for i in unis[i]['text'] if "Postdoctoral" not in i.text and "Post Doctoral" not in i.text and "Post-Doctoral" not in i.text]
+        unis[i]['hrefs'] = [i for i in unis[i]['hrefs'] if "Research Assistant" in str(i)]; unis[i]['hrefs'] = [i for i in unis[i]['hrefs'] if "Postdoctoral" not in str(i) and "Post Doctoral" not in str(i) and "Post-Doctoral" not in str(i)]
+
+# Counting RA positions 
+for i in unis:
+    if unis[i]['simple_count'] == 1:
+        results = unis[i]['result'] 
+        unis[i]['count'] = len(results)
+    if unis[i]['simple_count'] == 0:
+        unis[i]['count'] = unis[i]['html'].count("Research Assistant") 
+    if unis[i]['simple_count'] == 'queens':
+        unis[i]['count'] = len(unis[i]['text'])
+        results = unis[i]['hrefs']
+
+# Preparing urls (and text)
+    if unis[i]['get_2'] == 1:
+        if i != 'imperial':
+            hrefs = results[:]; gen = results[:]; text = results[:]; mol = results[:]
+        if unis[i]['prefix'] == 0:
+            for j in range(0, len(results)): 
+                hrefs[j] = results[j]['href']
+        if unis[i]['prefix'] == 1:
+            for j in range(0, len(results)): 
+                hrefs[j] = unis[i]['base_url'] + results[j]['href']
+        if unis[i]['prefix'] == '-':
+            for j in range(0, len(results)):
+                hrefs[j] = "https://my.corehr.com/pls/" + unis[i]['base_url'] + "/erq_jobspec_version_4.display_form?p_company=" + unis[i]['company_code'] + "&p_internal_external=E&p_display_in_irish=N&p_process_type=&p_applicant_no=&p_form_profile_detail=&p_display_apply_ind=Y&p_refresh_search=Y&p_recruitment_id=" + results[j]['href'][27:33]
+        if unis[i]['prefix'] == 'other':
+            hrefs = unis[i]['html'].findAll('a', {"class":"job-link"})
+            indices = [k for k,x in enumerate(unis[i]['result']) if ( "Research Assistant" in x.text) and ("Postdoctoral" not in x.text and "Post Doctoral" not in x.text and "Post-Doctoral" not in x.text)]
+            results = [unis[i]['result'][k] for k in indices]
+            hrefs = [hrefs[k] for k in indices]
+            unis[i]['count'] = len(results)
+            for j in range(0, len(hrefs)):
+                hrefs[j] = unis[i]['base_url'] + hrefs[j]['href']
+            gen = results[:]; text = results[:]; mol = results[:]
+        if unis[i]['prefix'] == 'nott':
+            for j in range(0, len(results)):
+                hrefs[j] = unis[i]['base_url'] + results[j]['href'][5:]
+        if unis[i]['prefix'] == 'cardiff':
+            text = []; hrefs = []
+            for j in range(0,len(results)):
+                split = results[j].replace('&quot',';').split(';')
+                for k in range(0,len(split)):
+                    if 'Research Assistant' in split[k]:
+                        text.append(split[k])
+                    if 'http' in split[k]:
+                        hrefs.append(split[k])
+            del text[1::2]
+            for j in range(0,len(hrefs)):
+                hrefs[j] = hrefs[j].replace('\\u0026','&')
+            gen = hrefs[:]; results = hrefs[:]; mol = hrefs[:]
+        if unis[i]['prefix'] == 'kcl_new':
+            text = []; hrefs = []
+            for j in range(0,len(results)):
+                split = results[j].split(',')
+                for k in range(0,len(split)):
+                    if 'title' in split[k]:
+                        text.append(split[k])
+                    if 'applyUrl' in split[k]:
+                        hrefs.append(split[k])
+            for j in range(0,len(text)):
+                split = text[j].split('"')
+                for k in range(0,len(split)):
+                    if 'Research Assistant' in split[k]:
+                        text[j] = split[k]
+            for j in range(0,len(hrefs)):
+                split = hrefs[j].split('"')
+                for k in range(0,len(split)):
+                    if 'http' in split[k]:
+                        hrefs[j] = split[k]
+            gen = hrefs[:]; mol = hrefs[:]; results = hrefs[:]
+        if unis[i]['prefix'] == 'queens':
+            for j in range(0, len(results)): 
+                hrefs[j] = results[j].find('a')['href']
+            text = unis[i]['text']
+
+# Getting second lot of htmls for specific job pages 
+        for j in range(0, len(results)): 
+            if i != "cardiff" and i != "kcl_new" and i != "queens":
+                text[j] = results[j].text
+            if unis[i]['simple_get_2'] == 1:
+                html = requests.get(hrefs[j]).text
+            if unis[i]['simple_get_2'] == 0:
+                html = s.get(hrefs[j]).text
+            if unis[i]['simple_get_2'] == '-':
+                html = requests.post(hrefs[j],headers={'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9','Accept-Encoding': 'gzip, deflate, br','Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8','Cache-Control': 'max-age=0','Connection': 'keep-alive','Host': 'jobs.exeter.ac.uk','Referer': 'https://jobs.exeter.ac.uk/hrpr_webrecruitment/wrd/run/ETREC106GF?USESSION=5B703E6554A0456EA9F710D000946D2E&WVID=3817591jNg&LANG=USA','Sec-Fetch-Dest': 'document','Sec-Fetch-Mode': 'navigate','Sec-Fetch-Site': 'same-origin','Sec-Fetch-User': '?1','Upgrade-Insecure-Requests': '1','User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.89 Safari/537.36'}).text
+
+# Counting G/genetic and G/genomic
+            gen[j] = html.count(' gene ') + html.count('Gene ') + html.count('genes') + html.count('Genes') + html.count('genetic') + html.count('Genetic') + html.count('genome') + html.count('Genome') + html.count('genomic') + html.count('Genomic') + html.count('genetics') + html.count('Genetics')
+
+# Counting M/molecular
+            mol[j] = html.count('molecular') + html.count('Molecular')
+
+# Putting in values for gen, text, hrefs, mol, text2, hrefs2
+        indices = [k for k,x in enumerate(gen) if x != 0]
+        unis[i]['gen'] = len(indices)
+        unis[i]['text'] = [text[k] for k in indices]
+        unis[i]['hrefs'] = [hrefs[k] for k in indices]
+
+        unis[i]['mol'] = ""
+        indices = [k for k,x in enumerate(mol) if x != 0]
+        unis[i]['text2'] = [text[k] for k in indices]
+        unis[i]['hrefs2'] = [hrefs[k] for k in indices]
+        indices = [k for k,x in enumerate(unis[i]['hrefs2']) if x not in unis[i]['hrefs']]
+        unis[i]['text2'] = [unis[i]['text2'][k] for k in indices]
+        unis[i]['hrefs2'] = [unis[i]['hrefs2'][k] for k in indices]
+        unis[i]['mol'] = len(indices)
+
+# Cleaning up dictionary
+for i in unis:
+    del unis[i]['url'];del unis[i]['simple_get'];del unis[i]['bs'];del unis[i]['simple_count'];del unis[i]['get_2'];del unis[i]['simple_get_2'];del unis[i]['prefix'];del unis[i]['base_url'];del unis[i]['html'];del unis[i]['result'];del unis[i]['result_type'];del unis[i]['company_code']
+    if "gen" in unis and unis[i]['gen'] == 0:
+        unis[i]['text'] = None
+        unis[i]['hrefs'] = None
+
+# Making table in pandas
+table = pd.DataFrame(unis).T
+table.columns = ['RA/RTs', 'Genetic', 'G_Title', 'G_Links', 'Molecular', 'M_Title', 'M_Links']
+table.insert(0, 'Universities', ['Imperial', 'KCL Old', 'KCL New', 'UCL', 'QMUL', 'Crick', 'St Georges', 'Royal Holloway', 'Cambridge', 'Oxford', 'Bath', 'Bristol', 'Southampton', 'Warwick', 'Nottingham', 'Liverpool', 'Manchester', 'Leeds', 'York', 'Newcastle', 'Cardiff', 'Cardiff MRC','Exeter','Queens'])
+
+# Reformatting the table 
+table = table.apply(lambda x: x.apply(pd.Series).stack()).reset_index().drop('level_1', 1).drop('level_0',1)
+
+# Forward-filling missing university names 
+table['Universities'] = table['Universities'].ffill()
+
+# Adding 'Why not' column
+g_why_not = {
+}
+# In the real script this is a dictionary of reasons why particular 'genetic' jobs aren't suitable, which are then removed from the table
+
+m_why_not = {
+}
+# Likewise for 'molecular' jobs
+
+# Adding dates and durations
+gen_dates = {
+}
+gen_length = {
+}
+mol_dates = {
+}
+mol_length = {
+}
+# These are further fields that I can add manually to give more information about the job listings
+
+# Mapping 'why_not', 'Dates' and 'Length' dictionaries into the table using the 'Link' column
+table['G_Why_not'] = table['G_Links'].map(g_why_not)
+table['M_Why_not'] = table['M_Links'].map(m_why_not)
+table['G_Dates'] = table['G_Links'].map(gen_dates)
+table['G_Length'] = table['G_Links'].map(gen_length)
+table['M_Dates'] = table['M_Links'].map(mol_dates)
+table['M_Length'] = table['M_Links'].map(mol_length)
+
+table = table.reindex(columns=['Universities','RA/RTs','Genetic','G_Title','G_Links','G_Dates','G_Length','G_Why_not','Molecular','M_Title','M_Links','M_Dates','M_Length','M_Why_not'])
+
+#-----------------------------------------------------------------------
+# Above this point everything is still in two tables
+
+# Cleaning up the table
+table.loc[table.G_Why_not.notnull(), ['G_Title','G_Links','G_Why_not']] = None
+table.loc[table.M_Why_not.notnull(), ['M_Title','M_Links','M_Why_not']] = None
+
+# Keeping the rows where G_Title or M_Title is not empty 
+table = table[table.G_Title.notnull() | table.M_Title.notnull()]
+del table['G_Why_not']; del table['M_Why_not']; del table['Genetic']; del table['Molecular']; del table['RA/RTs']
+table.columns = ['Unis', 'Gen Jobs', 'Gen Links', 'Gen Dates', 'Gen Length', 'Mol Jobs', 'Mol Links', 'Mol Dates','Mol Length']
+
+# Copying 'molecular' jobs across
+for i in table[(table['Mol Jobs'].notnull()) & (table['Mol Jobs'] != u'')].index:
+    table.at[i,'Gen Jobs'] = table.at[i,'Mol Jobs']
+    table.at[i,'Gen Links'] = table.at[i,'Mol Links']
+    table.at[i,'Gen Dates'] = table.at[i,'Mol Dates']
+    table.at[i,'Gen Length'] = table.at[i,'Mol Length']
+del table['Mol Jobs']; del table['Mol Links']; del table['Mol Dates']; del table['Mol Length']
+table.columns = ['Unis', 'Title', 'Link', 'Date', 'Length']
+table.sort_values(by=['Date'], inplace=True)
+
+# Adding column to show whether or not I have added these jobs to another table in Excel which I manually curate
+in_table = {
+}
+
+table['In table?'] = table['Link'].map(in_table)
+
+# Making csv
+print(table.to_csv(index=False))
