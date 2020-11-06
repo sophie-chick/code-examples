@@ -1,0 +1,84 @@
+# This is the UNIX bash code/shell scripting I included in my Appendix. 
+
+# Section 1 is LDSC (Linkage Disequilibrium Score Regression) implementation, for calculation of genetic correlations between psychiatric disorders 
+# based on GWAS Summary Statistics
+# Section 2 is use of Plink to create principal components for the genome-wide SNP data
+# Section 3 is implementation of GREML to calculate heritabilities and correlations for/between phenotypic scores
+
+#----------------
+
+# Section 1: LDSC
+
+# ./munge_sumstats program is used to reformat summary statistics into the standardised .sumstats files read by LDSC. 
+# This filters out non-SNP and strand-ambiguous variants and removes poorly-imputed SNPs or those not matching the SNPs used to compute LD scores. 
+# --sumstats specifies the input, --N flag the sample size, --out the output file name, and --merge-alleles the list of alleles to be merged with.
+./munge_sumstats.py --sumstats gwas/adhd_2010 --N 3351 --out sumstats/adhd_2010 --merge-alleles w_hm3.snplist
+./munge_sumstats.py --sumstats gwas/adhd_2018 --N 53293 --out sumstats/adhd_2018 --merge-alleles w_hm3.snplist
+./munge_sumstats.py --sumstats gwas/asd_2015 --N 10610 --out sumstats/asd_2015 --merge-alleles w_hm3.snplist
+./munge_sumstats.py --sumstats gwas/asd_2019 --N 46350 --out sumstats/asd_2019 --merge-alleles w_hm3.snplist
+./munge_sumstats.py --sumstats gwas/bp_2011 --N 16731 --out sumstats/bp_2011 --merge-alleles w_hm3.snplist
+./munge_sumstats.py --sumstats gwas/bp_2018 --N 51710 --out sumstats/bp_2018 --merge-alleles w_hm3.snplist
+./munge_sumstats.py --sumstats gwas/bpscz_2018 --N 41653 --out sumstats/bpscz_2018 --merge-alleles w_hm3.snplist
+./munge_sumstats.py --sumstats gwas/mdd_2013 --N 18759 --out sumstats/mdd_2013 --merge-alleles w_hm3.snplist
+./munge_sumstats.py --sumstats gwas/mdd_2018 --N 173005 --out sumstats/mdd_2018 --merge-alleles w_hm3.snplist
+./munge_sumstats.py --sumstats gwas/mdd_2019 --N 807553 --out sumstats/mdd_2019 --merge-alleles w_hm3.snplist
+./munge_sumstats.py --sumstats gwas/ocd_2017 --N 9725 --out sumstats/ocd_2017 --merge-alleles w_hm3.snplist
+./munge_sumstats.py --sumstats gwas/scz_2011 --N 21856 --out sumstats/scz_2011 --merge-alleles w_hm3.snplist
+./munge_sumstats.py --sumstats gwas/scz_2013 --N 32143 --out sumstats/scz_2013 --merge-alleles w_hm3.snplist
+./munge_sumstats.py --sumstats gwas/scz_2014 --N 77080 --out sumstats/scz_2014 --merge-alleles w_hm3.snplist
+./munge_sumstats.py --sumstats gwas/sczbp_2018 --N 65967 --out sumstats/sczbp_2018 --merge-alleles w_hm3.snplist
+
+# Checking results of ./munge_sumstats
+grep 'WARNING *log 
+cat scz_49.txt | awk 'NR==1 || $9 < 1e300' - > scz_filtered.sumstats #Removes values above 1e300 from the SCZ summary statistics file to enable it to be processed by munge_sumstats.py
+./munge_sumstats.py --sumstats gwas/mdd_2019 --N 807553 --signed-sumstats LogOR,0 --out sumstats/mdd_2019 --merge-alleles w_hm3.snplist #Specifies the summary statistics column which was not recognised
+
+# Shell script written to run correlations
+nano rg.sh
+./ldsc.py --rg $3,$1,$2,$4,$5,$6,$7,$8,$9,${10},${11},${12},${13},${14},${15} --ref-ld-chr eur_w_ld_chr/ --w-ld-chr eur_w_ld_chr/ --out rg/asd_2015
+./ldsc.py --rg $4,$1,$2,$3,$5,$6,$7,$8,$9,${10},${11},${12},${13},${14},${15} --ref-ld-chr eur_w_ld_chr/ --w-ld-chr eur_w_ld_chr/ --out rg/asd_2019
+mkdir rg; sh rg.sh sumstats/*.gz
+grep "Genetic Correlation:" rg/* > rg/rg.txt; grep 'P:' rg/* > rg/p_value.txt
+# This feeds in all the .sumstats files in the folder and runs the two ASD files against all the others, 
+# using European LD scores specified by the --ref-ld-chr and --with-ld-chr flags.
+
+#----------------
+
+# Section 2: Creating principal components
+
+./plink2 --bfile ../raw_genotypes/CHOPforGRM --keep keep_indi.txt --make-bed --out unrelated #Creating a new .bam file with only unrelated individuals 
+./plink2 --bfile unrelated --maf 0.05 --indep-pairwise 100 50 0.2 --out SNPstoexclude #Creating a list of SNPs to exclude
+./plink2 --bfile unrelated --exclude SNPstoexclude.prune.out --pca --out pcas --maf 0.01 #Calculating PCAs
+
+#----------------
+
+# Section 3: Running GREML 
+
+# Constructing a GRM from SSC Plink files
+./gcta64 --bfile genotypes/cases --make-grm --out grms/grm --thread-num 10
+./gcta64 --grm grms/grm --grm-cutoff 0.05 --make-grm --out grms/grm_cutoff --thread-num 10
+
+# Shell script to run phenotypic correlations and collate the results
+for i in {1..78}; do for j in {2..79}; do if (( $j > $i )); then ../gcta64 --grm grms/grm_cutoff --pheno ssc_all.phen --reml-bivar $i $j --covar sex.covar --qcovar pcs.qcovar --out rg/$i/$j --thread-num 10; fi; done; done
+for i in {1..78}; do grep rG rg/$i/*.hsq > rg/$i.txt; done
+for i in {1..56}; do for j in {2..57}; do if (( $j > $i )); then ../gcta64 --grm grm_cutoff --pheno agre_all.phen --reml-bivar $i $j --covar gender.covar --qcovar pcs.qcovar --out rg/$i/$j --thread-num 10; fi; done; done
+for i in {1..56}; do grep rG rg/$i/*.hsq > rg/$i.txt; done
+for i in {1..36}; do for j in {2..37}; do if (( $j > $i )); then ../gcta64 --grm grms/PARISLEAPgrmunrelated --pheno leap_t1_merged.phen --reml-bivar $i $j --covar gender_merged.covar --qcovar age_merged.qcovar --out rg/$i/$j --thread-num 10; fi; done; done
+for i in {1..36}; do grep rG rg/$i/*.hsq > rg/$i.txt; done
+
+# Shell script to run heritabilities for condensed summary measures and collate the results
+for i in {1..44}; do ../gcta64 --grm grms/grm_cutoff --pheno ssc_rg.phen --mpheno $i --reml --covar sex.covar --qcovar pcs.qcovar --out h2/$i --thread-num 10; fi; done; done
+grep /Vp h2/*.hsq > ssc_h2.txt
+for i in {1..43}; do ../gcta64 --grm grm_cutoff --pheno agre_rg.phen --mpheno $i --reml --covar gender.covar --qcovar pcs.qcovar --out h2/$i --thread-num 10; fi; done; done
+grep /Vp h2/*.hsq > agre_h2.txt
+for i in {1..10}; do ../gcta64 --grm grms/PARISLEAPgrmunrelated --pheno leap_rg.phen --mpheno $i --reml --covar gender_merged.covar --qcovar age_merged.qcovar --out h2/$i --thread-num 10; fi; done; done
+grep /Vp h2/*.hsq > leap_h2.txt
+
+# Shell script to run correlations for condensed summary measures and collate the results
+for i in {1..43}; do for j in {2..44}; do if (( $j > $i )); then ../gcta64 --grm grms/grm_cutoff --pheno ssc_rg.phen --reml-bivar $i $j --covar sex.covar --qcovar pcs.qcovar --out ../meta/rg/$i/ssc_$j --thread-num 10; fi; done; done
+grep rG rg/$i/ssc*hsq > agre_rg.txt
+for i in {1..43}; do for j in {2..44}; do if (( $j > $i )); then ../gcta64 --grm grm_cutoff --pheno agre_rg.phen --reml-bivar $i $j --covar gender.covar --qcovar pcs.qcovar --out ../meta/rg/$i/agre_$j --thread-num 10; fi; done; done
+grep rG rg/$i/agre*hsq > agre_rg.txt
+for i in {1..10}; do for j in {2..11}; do if (( $j > $i )); then ../gcta64 --grm grms/PARISLEAPgrmunrelated --pheno leap_rg.phen --reml-bivar $i $j --covar gender_merged.covar --qcovar age_merged.qcovar --out ../meta/rg/$i/leap_$j --thread-num 10; fi; done; done
+grep rG rg/$i/leap*hsq > leap_rg.txt
+
