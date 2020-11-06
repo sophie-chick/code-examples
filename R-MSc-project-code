@@ -1,0 +1,165 @@
+# Preparing SSC phenotype data for ABC 
+abc = read.table("abc_raw.csv", header=T, sep=" ")
+abc_summ = data.frame(abc[1],abc[4:9]); names(abc_summ)[1] = "FID" #Subsetting summary measures
+abc_summ[1] = gsub(".p1", "", abc_summ$FID) #Removing the .p1 suffix from FID numbers
+abc_summ = merge(ids, abc_summ, by="FID") #Merging the summary data with the genotype data IDs
+write.table(abc_summ, file="abc_summ.phen", col.names=F, row.names=F, quote=F)
+
+# Combining SSC summary measures across ADOS modules 1-4
+ados_1_4 = data.frame(ados_1$individual, ados_1$communication_social, ados_1$restricted_repetitive); names(ados_1_4) = c("individual", "communication_social", "restricted_repetitive"); ados_1_4$module = 1
+ados_2_4 = data.frame(ados_2$individual, ados_2$communication_social, ados_2$restricted_repetitive); names(ados_2_4) = c("individual", "communication_social", "restricted_repetitive"); ados_2_4$module = 2
+ados_3_4 = data.frame(ados_3$individual, ados_3$communication_social, ados_3$restricted_repetitive); names(ados_3_4) = c("individual", "communication_social", "restricted_repetitive"); ados_3_4$module = 3
+ados_4_4 = data.frame(ados_4$individual, ados_4$communication_social, ados_4$stereotyped_behaviors); names(ados_4_4) = c("individual", "communication_social", "restricted_repetitive"); ados_4_4$module = 4
+ados1to4 = rbind(ados_1_4, ados_2_4, ados_3_4, ados_4_4) #Horizontally merging common total scores 
+ados1to4[1] = gsub(".p1", "", ados1to4$individual); names(ados1to4)[1] = "FID"
+ados1to4 = merge(casesjustID, ados1to4, by="FID")
+write.table(ados1to4, "1to4_pheno.phen", col.names=F, row.names=F, quote=F)
+
+# Adding ADOS age and module number to SSC covariate files
+covariates = read.table("autismallfullcovar.txt", header=T, sep=" ")
+covariates[3][covariates[3]=="male"] = 1; covariates[3][covariates[3]=="female"] = 2 #Recoding sex from an integer into a character variable
+age = read.csv("adi_r.csv", header=T); age = data.frame(age[1],age[3]) 
+age[1] = gsub(".p1", "", age$individual); names(age)[1] = "FID"
+covariates = merge(covariates, age, by="FID" #Adding age from ADI-R to the SSC covariates file
+covariates = data.frame(covariates[1:2],covariates[14],covariates[3:13])
+covariates = merge(covariates, data.frame(ados1to4[1:2],ados1to4[5]),by=c("FID","IID"))
+covariates[15] = factor(covariates$module, levels = c("1", "2","3","4"), ordered = FALSE) #Converting ADOS module from a numeric variable to a factor with 4 levels 
+write.table(data.frame(covariates[1:2]; covariates[4]), file="sex.covar", sep=" ", quote=F, row.names=F); write.table(data.frame(covariates[1:2]; covariates[5:14]), file="pcs.qcovar", quote=F, row.names=F, col.names = F); write.table(data.frame(covariates[1:3]; covariates[5:14]), file="age_pcs.qcovar", quote=F, row.names=F, col.names = F); write.table(data.frame(covariates[1:2]; covariates[4]; covariates[15]), file="sex_adosmodule.covar", quote=F, row.names=F, col.names = F) #Exporting the covariates as .qcovar and .covar files
+
+# AGRE data
+# Converting -1 values to NAs 
+print(as.numeric(apply(agre_adir,2,function(x)sum(x == -1, na.rm=T)))) #Checking cells for -1
+agre_adir[agre_adir == -1] = NA #Converting -1 to NA; another check was run afterwards 
+
+# Checking CS and MS columns for NAs in AGRE ADI-R data
+apply(agre_adir[c(seq(7, 15, 2))], 2, function(x) sum(is.na(x))) 
+apply(agre_adir[c(seq(8, 16, 2))], 2, function(x) sum(is.na(x))) #Checking for NA occupancy in alternating columns
+agre_adir[c(seq(7, 15, 2))] = NULL #Removing the MS columns 
+
+# Creating column name consistency among ADOS modules
+a = names(agre_ados1); b = names(agre_ados2_2); c = names(agre_ados3_2); d = names(agre_ados4_3); agre_ados_names=cbind(a, b, c, d) #Checking names against each other
+agre_ados2_2 = as.data.frame(append(agre_ados2, list(CSSCTotal=rep(NA, 602)), after=9)) #Example code for adding a column to one module 
+
+# Separating SRS data into Parent, Teacher, Other
+agre_srs_parent = data.frame(agre_srs[agre_srs$SRS_Respond == 1 & !is.na(agre_srs$SRS_Respond),])
+agre_srs_teacher = data.frame(agre_srs[agre_srs$SRS_Respond == 2 & !is.na(agre_srs$SRS_Respond),])
+agre_srs_other = data.frame(agre_srs[agre_srs$SRS_Respond == -1,])
+
+# Identifying and deleting duplicates
+sum(agre_adir$Individual.ID %in% agre_adir$Individual.ID[duplicated(agre_adir$Individual.ID)]) #Counting the number of duplicates
+View(agre_adir[agre_adir$Individual.ID %in% agre_adir$Individual.ID[duplicated( agre_adir$Individual.ID)],]) #Creating a table of the duplicated entries 
+agre_adir = agre_adir[-c(3190, 3191, 3192, 3607, 3608, 3609), ] #Deleting one row from each pair of duplicate rows
+
+# Condensing sex columns
+sum(agre_gender[3] != agre_gender[4], na.rm = TRUE) #Checking for non-matching entries 
+for (i in c(which(!is.na(agre_gender_2[4])))) {
+  agre_gender_2[i,3] = agre_gender_2[i,4]
+} #Filling in the gaps in the first column by copying across from the second column; this was repeated for the six sex columns 
+
+# Creating PCs 
+grm_cutoff_grm <- read_delim("grm_cutoff.grm.id", "\t", escape_double = FALSE, col_names = FALSE, trim_ws = TRUE) #Importing list of unrelated individuals to keep
+names(grm_cutoff_grm)[1] = "AU Family ID"
+names(grm_cutoff_grm)[2] = "Individual ID"
+write.table(grm_cutoff_grm, file="keep_indi.txt", row.names=F, quote=F, col.names=F) #Creating the list of unrelated individuals to keep
+
+# LEAP data
+# Combining imputed with non-imputed columns
+for(i in 5:7) { 
+  for (j in c(which(leap_t1[8] != 999))) { 
+    leap_t1[j,i] = leap_t1[j,i+3] 
+}}
+
+# Preparing collated phenotype files for running correlations between all summary measures
+# Script used to create the SSC pooled phenotype table
+ssc_all = merge(data.frame(abc_summ[1:2],abc_summ[5],abc_summ[4],abc_summ[3], abc_summ[6:8]), data.frame(adi_r_d[1:2],adi_r_d[8],adi_r_d[13:14],adi_r_d[19:20]),by=c("FID","IID"),all=T)
+ssc_all = merge(ssc_all, data.frame(commonly_used_recoded[1:2], commonly_used_recoded[17], commonly_used_recoded[16]), by=c("FID","IID"),all=T)
+ssc_all = merge(ssc_all, data.frame(ados1to4[1:3]),by=c("FID","IID"),all=T)
+ssc_all = merge(ssc_all, imagination_creativity_4,by=c("FID","IID"),all=T)
+ssc_all = merge(ssc_all, data.frame(ados1to3[1:2],ados1to3[4]),by=c("FID","IID"),all=T)
+ssc_all = merge(ssc_all, data.frame(ados1to4[1:2],ados1to4[4]),by=c("FID","IID"),all=T)
+ssc_all = merge(ssc_all, data.frame(ados1to3[1:2],ados1to3[5],ados1to3[3]),by=c("FID","IID"),all=T)
+ssc_all = merge(ssc_all, data.frame(cbcl_6to18[1:2], cbcl_6to18[19:22], cbcl_6to18[7:8], cbcl_6to18[29:30], cbcl_6to18[37:42]), by=c("FID","IID"),all=T)
+ssc_all = merge(ssc_all, data.frame(trf[1:2],trf[25:26],trf[29:30],trf[9:10],trf[37:38],trf[45:48]),by=c("FID","IID"),all=T)
+ssc_all = merge(ssc_all, data.frame(ravens_c[1:2],ravens_c[40:41]),by=c("FID","IID"),all=T)
+ssc_all = merge(ssc_all, data.frame(rbs_summ[1:2], rbs_summ[8], rbs_summ[6], rbs_summ[4], rbs_summ[10], rbs_summ[16],rbs_summ[14],rbs_summ[12]),by=c("FID","IID"),all=T)
+ssc_all = merge(ssc_all, scq_current_2,by=c("FID","IID"),all=T)
+ssc_all = merge(ssc_all, srs_parent_summ,by=c("FID","IID"),all=T)
+ssc_all = merge(ssc_all, srs_teacher_summ,by=c("FID","IID"),all=T)
+ssc_all = merge(ssc_all, data.frame(vineland[1:2], vineland[4], vineland[3], vineland[13], vineland[12], vineland[45], vineland[44],vineland[34],vineland[33],vineland[46],vineland[8]),by=c("FID","IID"),all=T)
+#Iteratively merging all SSC questionnaire datasets using the index columns, FID and IID
+
+# ----------
+
+# Meta-analysis
+# Comparing means and ranges of measures in common to check equivalency
+for(i in 1:61) {
+  meta_numbers[i,2] = mean(ssc_all[[as.numeric(meta_numbers[i,1])+2]], na.rm=T);
+  meta_numbers[i,3] = min(ssc_all[[as.numeric(meta_numbers[i,1])+2]], na.rm=T);
+  meta_numbers[i,4] = max(ssc_all[[as.numeric(meta_numbers[i,1])+2]], na.rm=T);
+  meta_numbers[i,6] = mean(agre_all[[as.numeric(meta_numbers[i,5])+2]], na.rm=T);
+  meta_numbers[i,7] = min(agre_all[[as.numeric(meta_numbers[i,5])+2]], na.rm=T);
+  meta_numbers[i,8] = max(agre_all[[as.numeric(meta_numbers[i,5])+2]], na.rm=T);
+  meta_numbers[i,10] = mean(leap_t1[[as.numeric(meta_numbers[i,9])+1]], na.rm=T);
+  meta_numbers[i,11] = min(leap_t1[[as.numeric(meta_numbers[i,9])+1]], na.rm=T);
+  meta_numbers[i,12] = max(leap_t1[[as.numeric(meta_numbers[i,9])+1]], na.rm=T)
+}
+#Calculating mean, minimum and maximum for each list of column numbers, indexing shared measures in each dataset 
+
+# Removing nonoverlapping measures
+ssc_rg = ssc_all[-c(3:8,17,22:49,57)]
+agre_rg = agre_all[-c(11:12,16:18,27,29,31,33,35,39,41,43,45,47)]
+leap_rg = leap_t1_merged[-c(6:7,9:11,13:25,28:35)] 
+#Creating new dataframes without these columns
+
+# Inverse variance meta-analysis of heritabilities
+for(i in 1:43) {
+  if(is.na(meta_h2_raw[i,3])) {meta_h2[i,3] = (meta_h2_raw[i,5]/(meta_h2_raw[i,6]^2) + meta_h2_raw[i,7]/(meta_h2_raw[i,8]^2))/(1/(meta_h2_raw[i,6]^2) + 1/(meta_h2_raw[i,8]^2))
+  } else {
+    if(is.na(meta_h2_raw[i,5])) {meta_h2[i,3] = (meta_h2_raw[i,3]/(meta_h2_raw[i,4]^2) + meta_h2_raw[i,7]/(meta_h2_raw[i,8]^2))/(1/(meta_h2_raw[i,4]^2) + 1/(meta_h2_raw[i,8]^2))
+    } else { if(is.na(meta_h2_raw[i,7])) {meta_h2[i,3] = (meta_h2_raw[i,3]/(meta_h2_raw[i,4]^2) + meta_h2_raw[i,5]/(meta_h2_raw[i,6]^2))/(1/(meta_h2_raw[i,4]^2) + 1/(meta_h2_raw[i,6]^2))
+      } else { meta_h2[i,3] = (meta_h2_raw[i,3]/(meta_h2_raw[i,4]^2) + meta_h2_raw[i,5]/(meta_h2_raw[i,6]^2) + meta_h2_raw[i,7]/(meta_h2_raw[i,8]^2))/(1/(meta_h2_raw[i,4]^2) + 1/(meta_h2_raw[i,6]^2) + 1/(meta_h2_raw[i,8]^2)) }}}}
+#Using nested if statements to discern the number of datasets from which heritabilities are available, calculating heritability from these and inputting it into the meta_h2 results dataframe
+
+for(i in 1:43) { 
+  if(is.na(meta_h2_raw[i,4])) { meta_h2[i,4] = 2*pnorm(-abs(as.numeric(meta_h2[i,3]/(sqrt(1/((1/(meta_h2_raw[i,6]^2))+(1/(meta_h2_raw[i,8]^2)))))))) 
+  } else {if(is.na(meta_h2_raw[i,6])) {meta_h2[i,4] = 2*pnorm(-abs(as.numeric(meta_h2[i,3]/(sqrt(1/((1/(meta_h2_raw[i,4]^2))+(1/(meta_h2_raw[i,8]^2)))))))) 
+    } else {if(is.na(meta_h2_raw[i,8])) {meta_h2[i,4] = 2*pnorm(-abs(as.numeric(meta_h2[i,3]/(sqrt(1/((1/(meta_h2_raw[i,4]^2))+(1/(meta_h2_raw[i,6]^2)))))))) 
+      } else {meta_h2[i,4] = 2*pnorm(-abs(as.numeric(meta_h2[i,3]/(sqrt(1/((1/(meta_h2_raw[i,4]^2))+(1/(meta_h2_raw[i,6]^2))+(1/(meta_h2_raw[i,8]^2)))))))) }}}}
+#Using the same nested if structure to calculate Z score, by dividing the meta-analysed h2 calculated in the previous script with a function based on SE values, which is converted to a p value using the pnorm function 
+
+# Meta-analysis of correlations
+for(i in 1:43) {
+  for(j in c(seq(1,211,6))) {
+    if(!is.na(meta_doubles[i,j]) && !is.na(meta_doubles[i,j+2]) && is.na(meta_doubles[i,j+4])) {
+      meta_rg[i,j] = (meta_doubles[i,j]/(meta_doubles[i,j+1]^2) + meta_doubles[i,j+2]/(meta_doubles[i,j+3]^2))/(1/(meta_doubles[i,j+1]^2) + 1/(meta_doubles[i,j+3]^2));
+      meta_rg[i,j+2] = "ssc_agre"
+    } else {
+      if(!is.na(meta_doubles[i,j]) && is.na(meta_doubles[i,j+2]) && !is.na(meta_doubles[i,j+4])) {
+        meta_rg[i,j] = (meta_doubles[i,j]/(meta_doubles[i,j+1]^2) + meta_doubles[i,j+4]/(meta_doubles[i,j+5]^2))/(1/(meta_doubles[i,j+1]^2) + 1/(meta_doubles[i,j+5]^2));
+        meta_rg[i,j+2] = "ssc_leap"
+      } else { 
+        if(is.na(meta_doubles[i,j]) && !is.na(meta_doubles[i,j+2]) && !is.na(meta_doubles[i,j+4])) {
+          meta_rg[i,j] = (meta_doubles[i,j+2]/(meta_doubles[i,j+3]^2) + meta_doubles[i,j+4]/(meta_doubles[i,j+5]^2))/(1/(meta_doubles[i,j+3]^2) + 1/(meta_doubles[i,j+5]^2));
+          meta_rg[i,j+2] = "agre_leap"
+        } else {
+          if(!is.na(meta_doubles[i,j]) && !is.na(meta_doubles[i,j+2]) && !is.na(meta_doubles[i,j+4])) {
+            meta_rg[i,j] = (meta_doubles[i,j]/(meta_doubles[i,j+1]^2) + meta_doubles[i,j+2]/(meta_doubles[i,j+3]^2) + meta_doubles[i,j+4]/(meta_doubles[i,j+5]^2))/(1/(meta_doubles[i,j+1]^2) + 1/(meta_doubles[i,j+3]^2) + 1/(meta_doubles[i,j+5]^2));
+            meta_rg[i,j+2] = "all"
+}}}}}}
+#The datasets which contribute rg values are determined using nested if statements and meta-analysed correlation is calculated as for heritability 
+
+for(i in 1:43) {
+  for(j in c(seq(1,211,6))) {
+    if(!is.na(meta_doubles[i,j]) && !is.na(meta_doubles[i,j+2]) && is.na(meta_doubles[i,j+4])) {
+      meta_rg[i,j+1] = 2*pnorm(-abs(as.numeric(meta_rg[i,j]/(sqrt(1/(1/(meta_doubles[i,j+1]^2) + 1/(meta_doubles[i,j+3]^2)))))))
+    } else {
+      if(!is.na(meta_doubles[i,j]) && is.na(meta_doubles[i,j+2]) && !is.na(meta_doubles[i,j+4])) {
+        meta_rg[i,j+1] = 2*pnorm(-abs(as.numeric(meta_rg[i,j]/(sqrt(1/(1/(meta_doubles[i,j+1]^2) + 1/(meta_doubles[i,j+5]^2)))))))
+      } else { 
+        if(is.na(meta_doubles[i,j]) && !is.na(meta_doubles[i,j+2]) && !is.na(meta_doubles[i,j+4])) {
+          meta_rg[i,j+1] = 2*pnorm(-abs(as.numeric(meta_rg[i,j]/(sqrt(1/(1/(meta_doubles[i,j+3]^2) + 1/(meta_doubles[i,j+5]^2)))))))
+        } else {
+          if(!is.na(meta_doubles[i,j]) && !is.na(meta_doubles[i,j+2]) && !is.na(meta_doubles[i,j+4])) {
+            meta_rg[i,j+1] = 2*pnorm(-abs(as.numeric(meta_rg[i,j]/(sqrt(1/(1/(meta_doubles[i,j+1]^2) + (meta_doubles[i,j+3]^2) + 1/(meta_doubles[i,j+5]^2))))))) 
+}}}}}}
+#Using the same if statements, p value is calculated based on the previously derived meta rg values, using the same method as for heritability 
