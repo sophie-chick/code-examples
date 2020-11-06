@@ -1,3 +1,17 @@
+# This script parses the html from university/institute job application websites, opens listings containing the phrase 'Research Assistant', 
+# searches for the word 'genetic' or 'molecular' (or derivatives) on those pages, then populates a Pandas table with the uni, title and link of the relevant listings.
+
+# I have the option of manually filling out a dictionary called 'g_why_not' or 'm_why_not' which maps to the Link field. 
+# If the 'why_not' cell is occupied (by a reason I wouldn't apply for that job), that line in the table is deleted. 
+# I have emptied the 'why_not' dictionaries to clean up the script, so the code below gives all available jobs.
+
+# This script is also structured so that if I put #'s in front of all the lines after the #------, it outputs the table in a different format, 
+# with essentially two tables side-by-side, one for Genetic jobs and one for Molecular jobs, which is how I initially envisioned the table. 
+
+# I run the script by opening cmd, navigating to the relevant directory using cd, activating the virtual environment (for requests, BeautifulSoup and pandas) 
+# using venv\Scripts\activate.bat, and then running it: python table.py > table.csv (table.py is a Notepad file containing the below, saved with .py). 
+# I can then open the .csv with Excel.
+
 # Setup
 
 import requests
