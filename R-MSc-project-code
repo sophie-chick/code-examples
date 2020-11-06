@@ -1,3 +1,19 @@
+# This is taken from the Appendix of my MSc Thesis and is not exhaustive as the Appendix had a word limit, but provides examples of the code I used. 
+# For example, the first step, 'Preparing SSC phenotype data for ABC', was applied to every questionnaire, and many other steps were repeated.
+
+# Abbreviations
+# Samples: SSC is the Simons Simplex Collection, AGRE is the Autism Genetic Research Exchange, LEAP is the Longitudinal European Autism Project.
+# Diagnostic questionnaires: ABC is the Autism Behaviour Checklist, ADOS is the Autism Diagnostic Observation Schedule, ADIR is the Autism Diagnostic Interview Revised, 
+# SRS is the Social Responsiveness Scale, CBCL is the Child Behaviour Checklist, TRF is the Teacher's Report Form, RBS is the Repetitive Behaviour Scale, 
+# Ravens refers to Raven's Progressive Matrices, vineland to the Vineland Adaptive Behaviour Scales, and SCQ is the Social Communication Questionnaire.
+
+# Other information: Summ stands for summary scores; ADOS is split into four modules corresponding to severity; FID is family ID and IID is individual ID; 
+# Communication, Social, and Restricted_Repetitive are the phenotypic domains of autism; and for ADI-R, 'MS' refers to the short-form questionnaire and 
+# 'CS' to the long-form questionnaire.
+
+# This file contains the R code used for my project; I will add the UNIX code separately. 
+# Above the #----- is pre-processing of the data for analysis; below is meta-analysis in R after the heritabilities and correlations have been run in UNIX.
+
 # Preparing SSC phenotype data for ABC 
 abc = read.table("abc_raw.csv", header=T, sep=" ")
 abc_summ = data.frame(abc[1],abc[4:9]); names(abc_summ)[1] = "FID" #Subsetting summary measures
