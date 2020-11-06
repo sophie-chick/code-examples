@@ -1,0 +1,52 @@
+# Setup
+module load python
+module load fastqc
+module load cutadapt
+module load bwa
+module load samtools
+module load bcftools
+module load vcftools
+module load bedtools
+
+# Checking reads for per base and per sequence quality, per base sequence content, GC content, N content, sequence length distribution, duplicate sequences,
+#overrepresented sequences, adapter content, Kmer content
+fastqc SRR4061715.fastq
+
+# Removing contaminating adapter sequences
+cutadapt -a CTGTCTCTTATA -m 50 SRR4061715 > SRR4061715_trimmed1.fastq 2> CT_report.txt
+cutadapt -b TTTTTTTTTTTTTTTTTTTTTTTTTTTT -m 50 SRR4061715_trimmed1.fastq > SRR4061715_trimmed2.fastq 2> CT_TT_report.txt
+
+# Checking read quality following adapter trimming
+fastqc SRR4061715_trimmed2.fastq
+
+# Aligning reads to the hg38 reference genome
+bwa mem hg38.fa SRR4061715_trimmed2.fastq > SRR4061715.sam
+
+# Compressing .sam to .bam
+samtools view -bS SRR4061715.sam > SRR4061715.bam
+
+# Variant calling
+bcftools mpileup -f hg38.fa SRR4061715.bam | bcftools call -mv -Ov -o SRR4061715_calls.vcf
+
+#--------------
+
+# Variant analysis of a trio genotyping dataset Exome_genotype_RefSeq.vcf
+# Quality control - percentage of missing calls
+vcftools --vcf Exome_genotype_RefSeq.vcf --missing-indv 
+
+# Identifying de novo mutations using grep
+grep -e "0/1\s0/0\s0/0" -e "1/1\s0/0\s0/1" -e "1/1\s0/1\s0/0" -e "0/0\s0/0\s1/1" -e "1/1\s0/0\s1/1" -e "0/0\s1/1\s0/0" -e "1/1\s1/1\s0/0" -e "0/0\s1/1\s1/0" -e "0/0\s0/1\s1/1" -e "0/1\s1/1\s1/1" Exome_genotype_RefSeq.vcf > de_novo.txt
+
+# Intersecting de novo mutations with a bed file
+# modifying the format of the de_novo.txt file to match the bed file
+head -5 Exome_genotype_RefSeq.vcf > de_novo.vcf 
+sed 's/^/chr/g' de_novo.txt >> de_novo.vcf
+
+# Finding SNPs which interact with a gene annotation
+bedtools intersect -a de_novo.vcf -b RefSeq_Genes.bed -c > genes.bed
+
+# Extracting gene names
+cut -f 4 genes.bed > genes.txt
+
+
+
