@@ -1,0 +1,285 @@
+# BBC Introducing is a regional radio show broadcast on 31 local stations which showcases under-the-radar artists from that region. The broadcasts are 2 hours long, 
+# including interviews as well as music, and the track listing (10-20 songs) is usually available on each show's website. This is a really useful opportunity for 
+# less-known artists to reach a wider audience, especially now that discovering new artists through gigs is not possible. 
+
+# I wanted to make these curated playlists more accessible, as the website is not straightforward to navigate (the easiest way is by Google searching), 
+# and if you don't have time to listen to the full broadcast, manually searching for songs is nearly as time-consuming. I decided to write a program to convert 
+# the track information into Spotify playlists for easy listening. 
+
+# This program scrapes the BBC Introducing websites using Requests and BeautifulSoup, modifies the song and artist data to create optimal search queries, 
+# and uses Spotipy to find song IDs which are added to 8 regional playlists (eg BBC Introducing Oxfordshire, Berkshire, Surrey & Sussex and Kent are included on
+a BBC Introducing South East playlist). It also outputs song lists for the playlists and whether they were successfully added to Spotify, along with the list of 
+# songs that were not successfully added.
+
+# Setup: install Python, and in the code, replace USERNAME with your Spotify username, and CLIENT_ID, CLIENT_SECRET and REDIRECT_URL with your client ID, client secret
+# and redirect URL from the Spotify for Developers dashboard. If you have more than 20 Spotify playlists, change 'for i in range(0,20):' so that 20 is replaced by the 
+# number of playlists you have +8.
+
+
+
+import requests
+from bs4 import BeautifulSoup as bs
+import pandas as pd
+import spotipy
+import re
+
+# Setting up dictionary with information about local radio stations: programme number from url, region, and whether tracks are available on the website.
+
+radio_stations = {
+
+'london': {'link':'p025tszp','region':'london','tracks':'yes'},
+
+'essex': {'link':'p001d7q9','region':'east of england','tracks':'yes'},
+'suffolk':{'link':'p004j1sw','region':'east of england','tracks':'no'},
+'norfolk':{'link':'p001d7xz','region':'east of england','tracks':'no'},
+'beds herts bucks':{'link':'p001d7fq','region':'east of england','tracks':'no'},
+'cambs':{'link':'p001d7pg','region':'east of england','tracks':'yes'},
+
+'oxford': {'link':'p02nrsq7','region':'south east','tracks':'yes'},
+'berks':{'link':'p001d7mn','region':'south east','tracks':'no'},
+'surrey sussex':{'link':'p001d7kh','region':'south east','tracks':'yes'},
+'kent':{'link':'p001d715','region':'south east','tracks':'yes'},
+
+'bristol glouc wilts': {'link':'p012bzts','region':'south west','tracks':'no'},
+'cornwall somerset devon':{'link':'p012bztv','region':'south west','tracks':'yes'},
+'solent':{'link':'p040pjkt','region':'south west','tracks':'yes'},
+
+'hereford worcs': {'link':'p001d72q','region':'west midlands','tracks':'yes'},
+'warwick':{'link':'p001d7g0','region':'west midlands','tracks':'yes'},
+'west midlands':{'link':'p001d7ry','region':'west midlands','tracks':'yes'},
+'shrops':{'link':'p001g4tm','region':'west midlands','tracks':'yes'},
+'staffs cheshire':{'link':'p001d713','region':'west midlands','tracks':'yes'},
+
+'northamps': {'link':'p001d7gh','region':'east midlands','tracks':'yes'},
+'lincs':{'link':'p03zrnk4','region':'east midlands','tracks':'yes'},
+'leic rutland':{'link':'p00dfzns','region':'east midlands','tracks':'no'},
+'derby':{'link':'p00dfzp9','region':'east midlands','tracks':'no'},
+'notts':{'link':'p00dfzp7','region':'east midlands','tracks':'yes'},
+
+'merseyside': {'link':'p001d7td','region':'north west','tracks':'yes'},
+'manc':{'link':'p0035lnc','region':'north west','tracks':'yes'},
+'lancs':{'link':'p003x2s3','region':'north west','tracks':'yes'},
+'cumbria':{'link':'p012bztt','region':'north west','tracks':'no'},
+
+'south yorks': {'link':'p001d7w7','region':'yorks and north east','tracks':'no'},
+'west yorks':{'link':'p004tfds','region':'yorks and north east','tracks':'no'},
+'east yorks':{'link':'p001d73h','region':'yorks and north east','tracks':'no'},
+'north yorks':{'link':'p001ph3x','region':'yorks and north east','tracks':'yes'},
+'durham tyne and wear northumbria':{'link':'p011ybvq','region':'yorks and north east','tracks':'yes'}
+
+}
+
+# Scraping the link to the most recent episode from the programme website
+
+for i in radio_stations:
+    radio_stations[i]['latest_episode_link'] = bs(requests.get('https://www.bbc.co.uk/programmes/' + radio_stations[i]['link'] + '/episodes/player').text, 'html.parser').find('a', {'class':'br-blocklink__link block-link__target'})['href']
+    
+    # Scraping song titles and removing extra text which hinders searching for the song
+
+    radio_stations[i]['song_list'] = bs(requests.get(radio_stations[i]['latest_episode_link']).text, 'html.parser').findAll('p',{'class':'no-margin'})
+    radio_stations[i]['song_list'] = [x.text[1:-1].partition('  ')[0].rstrip().replace('(radio edit)','') for x in radio_stations[i]['song_list']]
+
+    # Artist names can't be scraped as simply because there may be multiple artists for one track in separate html tags. Tt's necessary to split the html up 
+    # using <li> tags, use the <span class="artist"> tag to identify fragments containing artist names, and split each up again using <span> tags.
+    # The artist name is then constructed as follows, to preserve them as written: fragment 1 containing the name of the main author is added,
+    # followed by the second artist (if any) from fragment 3, third artist from fragment 5 (if any) and featuring artist from the penultimate fragment. 
+    
+    radio_stations[i]['artist_list'] = radio_stations[i]['song_list'][:]
+    radio_stations[i]['html'] = requests.get(radio_stations[i]['latest_episode_link']).text
+    split = radio_stations[i]['html'].split('<li')
+    li_index = [k for k,x in enumerate(split) if '<span class="artist">' in x]
+    for j in range(0,len(li_index)):
+        li = split[li_index[j]].split('span')
+        radio_stations[i]['artist_list'][j] = li[1][16:-2].replace('&amp;','&').replace("&#039;","'")
+        if '>, <' in li[2]:
+            radio_stations[i]['artist_list'][j] = radio_stations[i]['artist_list'][j] + ', ' + li[3][16:-2].replace('&amp;','&').replace("&#039;","'")
+        if '> &amp; <' in li[2]:
+            radio_stations[i]['artist_list'][j] = radio_stations[i]['artist_list'][j] + ' & ' + li[3][16:-2].replace('&amp;','&').replace("&#039;","'")
+        if '> &amp; <' in li[4]:
+            radio_stations[i]['artist_list'][j] = radio_stations[i]['artist_list'][j] + ' & ' + li[5][16:-2].replace('&amp;','&').replace("&#039;","'")
+        if 'feat.' in li:
+            radio_stations[i]['artist_list'][j] = radio_stations[i]['artist_list'][j] + ' feat. ' + li[-1]
+
+    # Creating the list of queries for each song, which is the set of search terms to be used to find the song in Spotify, and cleaning it up by removing anything
+    # which will not be correctly rendered in the search (eg special characters) or extraneous terms which might not be part of the name on Spotify.
+    # These are not removed from the song or artist lists because they might be useful in finding the song through other means if the songs are not on Spotify.
+
+    radio_stations[i]['query_list'] = [artist + ' ' + song for artist,song in zip(radio_stations[i]['artist_list'],radio_stations[i]['song_list'])]
+    radio_stations[i]['query_list'] = [x.replace('Δ','').replace('Χ','').replace('(radio edit)','').replace('(Radio Edit)','').replace('&','').replace(' - ',' ').replace('(Live)','').replace('(Session)','').replace('(Original Mix)','').replace('feat. ','').replace('Prod. ','').replace('Prod by ','') for x in radio_stations[i]['query_list']] 
+
+    # Making an extra list containing the name of the local station for each song (useful when concatenating song lists later)
+    
+    radio_stations[i]['radio_stations_list'] = radio_stations[i]['song_list'][:]
+    for j in range(0,len(radio_stations[i]['radio_stations_list'])):
+        radio_stations[i]['radio_stations_list'][j] = i
+
+# Spotify authorisation for two Scopes: playlist-modify-private and playlist-read-private.
+
+from spotipy.oauth2 import SpotifyOAuth
+token = spotipy.util.prompt_for_user_token('USERNAME',scope='playlist-modify-private playlist-read-private',client_id='CLIENT_ID',client_secret='CLIENT_SECRET', redirect_uri='http://example.com/')
+sp = spotipy.Spotify(auth=token)
+
+# Finding song IDs (needed to add them to playlists) by running the queries through the Spotify search (via Spotipy). The exception is raised in order to 
+# record unsuccessful searches. A 'successes' list is created using the NAs in the ID list, which records whether the songs were successfully found on Spotify.
+# The NAs are then removed from the list of song IDs.
+
+radio_stations[i]['id_list'] = radio_stations[i]['query_list'][:]
+for i in radio_stations:
+    for j in range(0,len(radio_stations[i]['query_list'])):
+        try:
+            radio_stations[i]['id_list'][j] = sp.search(q = radio_stations[i]['query_list'][j], limit=1, offset=0, type='track', market=None)['tracks']['items'][0]['id']
+        except IndexError:
+            radio_stations[i]['id_list'][j] = 'NA'
+    radio_stations[i]['successes'] = ['No' if x=='NA' else 'Yes' for x in radio_stations[i]['id_list']]
+    radio_stations[i]['id_list'] = [x for x in radio_stations[i]['id_list'] if x != 'NA']
+
+# Creating dictionary for the playlists to be created, corresponding to larger geographical regions.
+
+playlists = {
+'london':{'name':'BBC Introducing London','id_list':[''],'artist_list':[''],'song_list':[''],'id_list_table':[''],'radio_stations_list':[''],'description':[''],'query_list':['']},
+'east of england':{'name':'BBC Introducing East of England','id_list':[''],'artist_list':[''],'song_list':[''],'id_list_table':[''],'radio_stations_list':[''],'description':[''],'query_list':['']},
+'south east':{'name':'BBC Introducing South East','id_list':[''],'artist_list':[''],'song_list':[''],'id_list_table':[''],'radio_stations_list':[''],'description':[''],'query_list':['']},
+'south west':{'name':'BBC Introducing South West','id_list':[''],'artist_list':[''],'song_list':[''],'id_list_table':[''],'radio_stations_list':[''],'description':[''],'query_list':['']},
+'west midlands':{'name':'BBC Introducing West Midlands','id_list':[''],'artist_list':[''],'song_list':[''],'id_list_table':[''],'radio_stations_list':[''],'description':[''],'query_list':['']},
+'east midlands':{'name':'BBC Introducing East Midlands','id_list':[''],'artist_list':[''],'song_list':[''],'id_list_table':[''],'radio_stations_list':[''],'description':[''],'query_list':['']},
+'north west':{'name':'BBC Introducing North West','id_list':[''],'artist_list':[''],'song_list':[''],'id_list_table':[''],'radio_stations_list':[''],'description':[''],'query_list':['']},
+'yorks and north east':{'name':'BBC Introducing Yorks and North East','id_list':[''],'artist_list':[''],'song_list':[''],'id_list_table':[''],'radio_stations_list':[''],'description':[''],'query_list':['']}
+}
+
+# For each playlist, lists from the local stations within each region are concatenated, for song IDs, artist names, song names, successes, local station name and queries.
+
+for i in playlists:
+    for j in radio_stations:
+        if radio_stations[j]['region'] == i:
+            playlists[i]['id_list'].extend(radio_stations[j]['id_list'])
+            playlists[i]['artist_list'].extend(radio_stations[j]['artist_list'])
+            playlists[i]['song_list'].extend(radio_stations[j]['song_list'])
+            playlists[i]['successes'].extend(radio_stations[j]['successes'])
+            playlists[i]['radio_stations_list'].extend(radio_stations[j]['radio_stations_list'])
+            playlists[i]['query_list'].extend(radio_stations[j]['query_list'])
+    for j in ['id_list','artist_list','song_list','id_list_table','radio_stations_list','query_list']:
+        del playlists[i][j][0]
+
+# Playlist descriptions are made, which are the lists of counties/local stations included in each playlist. 
+
+for i in playlists:
+    for j in radio_stations:
+        if radio_stations[j]['region'] == i and radio_stations[j]['tracks'] == 'yes':
+                playlists[i]['description'].append(j)
+    del playlists[i]['description'][0]
+    playlists[i]['description'] = "songs from " + str(playlists[i]['description'])[1:-1].replace("'","")
+
+# Obtaining the list of existing playlists for the user, to check whether the playlists to be created are already there
+
+existing_playlists = sp.user_playlists(user = 'USERNAME', limit=20, offset=0)
+existing_playlist_list = ['']; existing_playlist_id = ['']
+for i in range(0,20):
+    try:
+        existing_playlist_list.append(existing_playlists['items'][i]['name'])
+        existing_playlist_id.append(existing_playlists['items'][i]['id'])
+    except IndexError:
+        pass
+del existing_playlist_list[0]; del existing_playlist_id[0]
+
+# If the playlist already exists, the songs are replaced with the latest set of songs for that playlist. There is a 100 song limit when adding songs to playlists, so 
+# if there are more 100 songs they are uploaded in two lots. The description is also updated.
+
+for i in playlists:
+    if playlists[i]['name'] in existing_playlist_list:
+        playlists[i]['id'] = existing_playlist_id[existing_playlist_list.index(playlists[i]['name'])]
+        if len(playlists[i]['id_list']) > 100:
+            sp.user_playlist_replace_tracks(user = 'USERNAME', playlist_id = playlists[i]['id'], tracks = playlists[i]['id_list'][:99])
+            sp.user_playlist_add_tracks(user = 'USERNAME', playlist_id = playlists[i]['id'], tracks = playlists[i]['id_list'][100:], position = None)
+            sp.user_playlist_change_details(user = 'USERNAME', playlist_id = playlists[i]['id'], description = playlists[i]['description'])
+        else:
+            sp.user_playlist_replace_tracks(user = 'USERNAME', playlist_id = playlists[i]['id'], tracks = playlists[i]['id_list'])
+            sp.user_playlist_change_details(user = 'USERNAME', playlist_id = playlists[i]['id'], description = playlists[i]['description'])
+
+    # If the playlist doesn't exist, it is created
+
+    else:
+        sp.user_playlist_create(user = 'USERNAME', name = playlists[i]['name'], public=False, collaborative=False, description=playlists[i]['description'])
+        existing_playlists = sp.user_playlists(user = 'USERNAME', limit=20, offset=0)
+        
+        # Getting the new list of playlists
+        
+        existing_playlist_id_new = ['']
+        for j in range(0,20):
+            try:
+                existing_playlist_id_new.append(existing_playlists['items'][j]['id'])
+            except IndexError:
+                pass
+        del existing_playlist_id_new[0]
+        
+        # Comparing the IDs from the new list of playlists to the previous one in order to obtain the new playlist ID (in order to add songs to it)
+        
+        playlists[i]['id'] = str(list(set(existing_playlist_id_new) - set(existing_playlist_id)))[2:-2]
+        
+        # Adding songs to the new playlist (in two lots if there are more than 100 to be added)
+        
+        if len(playlists[i]['id_list']) > 100:
+            sp.user_playlist_add_tracks(user = 'USERNAME', playlist_id = playlists[i]['id'], tracks = playlists[i]['id_list'][:99])
+            sp.user_playlist_add_tracks(user = 'USERNAME', playlist_id = playlists[i]['id'], tracks = playlists[i]['id_list'][100:], position = None)
+        else:
+            sp.user_playlist_add_tracks(user = 'USERNAME', playlist_id = playlists[i]['id'], tracks = playlists[i]['id_list'])
+
+        # Refreshing the list of existing playlists
+
+        existing_playlists = sp.user_playlists(user = 'USERNAME', limit=20, offset=0)
+        existing_playlist_id = ['']
+        for i in range(0,20):
+            try:
+                existing_playlist_id.append(existing_playlists['items'][i]['id'])
+            except IndexError:
+                pass
+        del existing_playlist_id[0]
+
+# Making the report (readable if it's run from the command line)
+# Printing list of local stations for which track lists are not available
+
+print('not added to playlist:')
+no_list = ['']
+for i in radio_stations:
+    if radio_stations[i]['tracks'] == 'no':
+        no_list.append(i)
+del no_list[0]
+print(str(no_list)[1:-1].replace("'",""))
+print(' ')
+
+# Printing the success rate for all of the local stations that track lists are available for, as well as overall playlist success rates (except for London
+# which is in its own playlist)
+
+print('added to playlist:')
+for i in playlists:
+    print(i + ': ' + '{}'.format(round(playlists[i]['successes'].count('Yes')*100/len(playlists[i]['successes']))) + '%')
+    if i != 'london':
+        yes_list = ['']; percentage_list = ['']
+        for j in radio_stations:
+            if radio_stations[j]['region'] == i and radio_stations[j]['tracks'] == 'yes': 
+                yes_list.append(j + ':,')
+                percentage_list.append('{}'.format(round(radio_stations[j]['successes'].count('Yes')*100/len(radio_stations[j]['successes']))) + '%')
+        del yes_list[0]; del percentage_list[0]
+        print(str([i for x in zip(yes_list,percentage_list) for i in x])[1:-1].replace("'","").replace(",,",""))
+    print(' ')
+
+# Combining the lists into a track list for each playlist with local station, artist name, song name and whether it was successfully added to the playlist,
+# and writing all the track lists to a folder called song_lists
+
+for i in playlists:
+    playlists[i]['table'] = pd.DataFrame(
+{'Radio Station': playlists[i]['radio_stations_list'],
+'Artist': playlists[i]['artist_list'],
+'Song': playlists[i]['song_list'],
+'Added to Playlist': playlists[i]['successes']
+})
+for i in playlists:
+    playlists[i]['table'].to_csv('{}'.format("song_lists\B" + playlists[i]['name'][1:] + ".csv"), index=False)
+
+# Making a list of songs that weren't added to Spotify and writing it to the same folder
+
+werent_added = pd.concat([playlists['london']['table'],playlists['east of england']['table'],playlists['south east']['table'],playlists['south west']['table'],playlists['west midlands']['table'],playlists['east midlands']['table'],playlists['north west']['table'],playlists['yorks and north east']['table']])
+werent_added.columns = ['Radio Station', 'Artist', 'Song', 'Added_to_Playlist']
+werent_added = werent_added[werent_added.Added_to_Playlist == 'No']
+werent_added = werent_added.drop('Added_to_Playlist', 1)
+werent_added.to_csv("song_lists\Weren't added.csv", index=False)
+
