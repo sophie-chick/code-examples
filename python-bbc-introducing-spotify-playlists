@@ -1,254 +1,61 @@
 ### Setup
 print('\nSetting up...')
 
-import requests, pandas as pd, spotipy, re
+import requests, pandas as pd, spotipy, re, json
 from bs4 import BeautifulSoup as bs
 from datetime import date, datetime, timedelta
 from spotipy.oauth2 import SpotifyOAuth
 
 # Spotify developer credentials 
-u = # Put your spotify username in the single quotes
-c_id = # Put your client id
-c_s = # Put your client secret
+u = '' # Put your spotify username in the single quotes
+c_id = '' # Put your client id
+c_s = '' # Put your client secret
 
-playlists_list = ['combined'] # used to be made up of individual playlists
-
-n = 50 # Make sure this number is bigger than the current number of playlists you have + the number of playlists you want to make
-
-#---------------------------------------------------------------------------
-
-### Creating dictionary of dictionaries containing BBC Sound programme IDs and region (for the purposes of this script, 'jazz' is a region)
+n = 50 # Make sure this number is bigger than the current number of playlists you have + 1
+playlist_name = 'BBC Introducing'
 
 radio_stations = {
+'radio 1': {'c':'m0000blt'}, 
+'radio 6': {'c':'b00rz79k'},
+'london': {'c':'p09m77wm'}, 
+'wales': {'c':'b0079gnt'}, 
+'the west': {'c':'p09mkx1k'}, 
+'j to z': {'c':'b09ymqm4'}, 
+'freeness': {'c':'m000b075'},
+'cerys matthews': {'c':'b00llg30'}
+} 
+# still a dictionary because want to add length
 
-'radio 1': {'c':'m0000blt','region':'combined'}, #'radio 1'
+print('\nGetting song links...')
 
-'london': {'c':'p09m77wm','region':'combined'}, #'london'
-
-'wales':{'c':'b0079gnt','region':'combined'}, #'wales'
-
-'bristol glouc wilts': {'c':'p09mkx1k','region':'combined'}, #'south west'
-
-'j to z': {'c':'b09ymqm4','region':'combined'}, #'jazz'
-'freeness': {'c':'m000b075','region':'combined'} #'jazz'
-
-}
-
-# Adding 'tracks' key (for which the default value is 'no')
-# This records whether tracks are actually listed for the latest episode (sometimes they don't bother to include them on the website, and sometimes no episode is posted that week)
-
-for i in radio_stations:
-    radio_stations[i]['tracks'] = 'no'
-
-#---------------------------------------------------------------------------
-
-### Building artist, song and query lists
-print('\nGetting track information...')
-
-# Getting latest episode link from main page html
-
+song_ids = []
 for i in radio_stations:
     print(i)
-    radio_stations[i]['latest_episode_link'] = bs(requests.get('https://www.bbc.co.uk/programmes/' + radio_stations[i]['c'] + '/episodes/player').text, 'html.parser').find('a', {'class':'br-blocklink__link block-link__target'})['href'] 
-    # For each programme ID, finds the URL for the most recent episode
-    radio_stations[i]['html'] = requests.get(radio_stations[i]['latest_episode_link']).text
-    # Getting html for latest episode
-    radio_stations[i]['song_list'] = bs(radio_stations[i]['html'], 'html.parser').findAll('p',{'class':'no-margin'})
-    # Getting song names 
+    latest_episode_link = bs(requests.get('https://www.bbc.co.uk/programmes/' + radio_stations[i]['c']).text, 'html.parser').find('a', {'class':'box-link__target link--block'})['href'] 
+    # Getting spotify links 
+    html = json.loads([x for x in requests.get(latest_episode_link).text.split('\n') if 'window.__PRELOADED_STATE__' in x][0].replace('</script>','').replace('<script>','').replace('window.__PRELOADED_STATE__','').lstrip('= ').rstrip(' ;'))
+    song_count = 0
+    for j in range(0,len(html['modules']['data'][1]['data'])): 
+        # all the ones with links
+        if html['modules']['data'][1]['data'][j]['uris'] != []:
+            song_ids.append(html['modules']['data'][1]['data'][j]['uris'][0]['uri'].replace('https://open.spotify.com/track/',''))
+            song_count = song_count + 1
+    radio_stations[i]['length'] = song_count
+song_ids = [x for x in song_ids if 'music.apple.com' not in x]
+song_ids = list(dict.fromkeys(song_ids))
 
-# Using the song list to determine whether radio stations are active or not and fill in the 'tracks' keys
-
-    if i != 'oxford':
-        html_date = bs(radio_stations[i]['html'], 'html.parser').find('div',{'class':'broadcast-event__time beta'})['content'][:10]
-        # For all radio stations except Oxford, find the broadcast date
-    if i == 'oxford':
-        html_date = bs(radio_stations[i]['html'], 'html.parser').find('time')['datetime']
-        # Find the broadcast date for Oxford (it's in a different place)
-    episode_date = datetime.strptime(html_date, '%Y-%m-%d').date()
-    days = int((date.today() - episode_date).days)
-    # Find the number of days between the date the episode was aired and today
-
-    if days <= 7 and len(radio_stations[i]['song_list']) > 1:
-        radio_stations[i]['tracks'] = 'yes'
-        radio_stations[i]['track_number'] = ''
-    if days > 7:
-        radio_stations[i]['days_since'] = str(days)
-    else: 
-        radio_stations[i]['days_since'] = ''
-    if len(radio_stations[i]['song_list']) <= 1:
-        radio_stations[i]['track_number'] = str(len(radio_stations[i]['song_list']))
-    else:
-        radio_stations[i]['track_number'] = ''
-    # If the latest episode was aired within 7 days and has a track list, 'tracks' = 'yes'
-    # If it was aired more than 7 days ago, 'days_since' = the number of days it's been
-    # If there are 1 or fewer tracks, 'track_number' = the number of tracks (these are later included in the report to show why that radio station wasn't included) 
-
-# Cleaning up song list - permanent changes only 
-
-    radio_stations[i]['song_list'] = [x.text[1:-1].partition('  ')[0].rstrip() for x in radio_stations[i]['song_list']]
-    # Removes trailing whitespace in song names
-
-# Correcting song names 
-
-    radio_stations[i]['song_list'] = [x.replace('Dissapointed','Disappointed').replace('WYLTK','W.Y.L.T.K') for x in radio_stations[i]['song_list']]
-    # Making manual changes to the song list because of things that have been mispelled and don't match the name on Spotify
-
-# Removing superfluous artist names from song titles
-
-    for j in range(0,len(radio_stations[i]['song_list'])):
-        if ' - ' in radio_stations[i]['song_list'][j]:
-            radio_stations[i]['song_list'][j] = radio_stations[i]['song_list'][j].partition(' - ')[2]
-        if '(' in radio_stations[i]['song_list'][j][1:]:
-            radio_stations[i]['song_list'][j] = radio_stations[i]['song_list'][j].partition(' (')[0]
-    # For each song name, removes anything after a dash or open bracket 
-
-    # Building the artist names from the html manually, as multiple artists are listed inside different tags
-
-    radio_stations[i]['artist_list'] = radio_stations[i]['song_list'][:]
-    # Creates an artist list the same length as the song list
-    split = radio_stations[i]['html'].split('<li')
-    # Splits up the html into a list using <li> tags
-    li_index = [k for k,x in enumerate(split) if '<span class="artist">' in x]
-    # Finds the indices of the list that contain <span class="artist">
-    for j in range(0,len(li_index)):
-        li = split[li_index[j]].split('span')
-        radio_stations[i]['artist_list'][j] = li[1][16:-2].replace('&amp;','&').replace("&#039;","'")
-        if '>, <' in li[2]:
-            radio_stations[i]['artist_list'][j] = radio_stations[i]['artist_list'][j] + ', ' + li[3][16:-2].replace('&amp;','&').replace("&#039;","'")
-        if '> &amp; <' in li[2]:
-            radio_stations[i]['artist_list'][j] = radio_stations[i]['artist_list'][j] + ' & ' + li[3][16:-2].replace('&amp;','&').replace("&#039;","'")
-        if '> &amp; <' in li[4]:
-            radio_stations[i]['artist_list'][j] = radio_stations[i]['artist_list'][j] + ' & ' + li[5][16:-2].replace('&amp;','&').replace("&#039;","'")
-        if 'feat.' in li:
-            radio_stations[i]['artist_list'][j] = radio_stations[i]['artist_list'][j] + ' feat. ' + li[-1]
-    # Splits the html fragment containing <span class="artist"> into a list using '<span>' tags and builds the artist name(s)
-
-    # Cleaning up artist list - permanent changes only
-
-    radio_stations[i]['artist_list'] = [x.replace("Wylde","W y L D e") for x in radio_stations[i]['artist_list']]
-    # Correcting artist names so they can be found on Spotify 
-
-    # Making query list which will be used to find the songs on Spotify
-    # The actual song_list and artist_list will be listed in the track list spreadsheets at the end, so it's fine for those to include eg extra artists, but the query has to be in a particular format with only the main artist name (and no apostrophes)
-
-    radio_stations[i]['query_list'] = ['artist:"' + artist + '" track:"' + song + '"' for artist,song in zip([y.partition(', ')[0].partition(' &')[0].partition(' feat.')[0].partition(' Prod.')[0].partition(' Prod by')[0].replace("'","") for y in radio_stations[i]['artist_list']],[x.replace("'","") for x in radio_stations[i]['song_list']])]
-    # Removes any secondary artists and apostrophes from the artist name and any apostrophes from the song name    
-
-    # Query cleanup (removing special characters)
-
-    radio_stations[i]['query_list'] = [x.replace('Δ','').replace('Χ','') for x in radio_stations[i]['query_list']]
-
-    # Creating lists which will all be needed later: an ID list, a list of whether the IDs were found or not, a modified query list, a second list of whether the IDs were found or not, and an updated artist list without additional artists, to be the same length as the query list. 
-
-    radio_stations[i]['id_list'] = radio_stations[i]['query_list'][:]
-    radio_stations[i]['id_list_table'] = radio_stations[i]['query_list'][:]
-    radio_stations[i]['query_list_2'] = radio_stations[i]['query_list'][:]
-    radio_stations[i]['id_list_table_2'] = radio_stations[i]['query_list'][:]
-    radio_stations[i]['artist_list_updated'] = [x.partition(', ')[0].partition(' &')[0].partition(' feat.')[0].partition(' Prod.')[0].partition(' Prod by')[0].replace("'","") for x in radio_stations[i]['artist_list']]
-
-    # Creating a 'radio_stations_list' which just contains the radio station name (it will be used when making the track list tables later)
-
-    radio_stations[i]['radio_stations_list'] = radio_stations[i]['song_list'][:]
-    for j in range(0,len(radio_stations[i]['radio_stations_list'])):
-        radio_stations[i]['radio_stations_list'][j] = i
-
-#---------------------------------------------------------------------------
-
-### Getting song IDs from Spotify
-print('\nGetting song IDs from Spotify...') 
+playlist_description = ', '.join([str(y) + ' from ' + x for x,y in zip(radio_stations, [radio_stations[z]['length'] for z in radio_stations])])
 
 # Spotify authorisation for three scopes
 
 token = spotipy.util.prompt_for_user_token(u, scope='playlist-read-private playlist-modify-private playlist-modify-public', client_id=c_id, client_secret=c_s, redirect_uri='http://example.com/')
-sp = spotipy.Spotify(auth=token)
+sp = spotipy.Spotify(auth=token) 
 
-# Finding song IDs
-# For every query in query_list, the song ID is returned and added at the same position in id_list; if it can't be found, 'NA' is added instead (by handling the exception)
-
-for i in radio_stations:
-    print(i)
-    for j in range(0,len(radio_stations[i]['query_list'])):
-        try:
-            radio_stations[i]['id_list'][j] = sp.search(q = radio_stations[i]['query_list'][j], limit=1, offset=0, type='track', market=None)['tracks']['items'][0]['id']
-            # Finds the ID and adds at position j in the list
-            radio_stations[i]['id_list_table'][j] = 'Yes'
-            # Sets whether the ID was found or not to 'Yes' at that position
-            radio_stations[i]['query_list_2'][j] = ''
-            # Fills in second query as '' because if the first query worked a second one is not needed 
-            radio_stations[i]['id_list_table_2'][j] = ''
-            # Likewise the second round of whether the ID was found or not
-        except IndexError:
-            radio_stations[i]['id_list'][j] = 'NA'
-            # If it wasn't found, 'NA' is added to the ID list instead
-            radio_stations[i]['id_list_table'][j] = 'No'
-            # The list saying whether the ID was found or not is set to 'No' at that position
-
-            # If the query with artist name + song name fails to find an ID, the query is trimmed to only include artist name and run again
-
-            radio_stations[i]['query_list_2'][j] = radio_stations[i]['query_list'][j].partition(' track')[0]
-            # Making queries with artist name only in the second query list
-            try:
-                radio_stations[i]['id_list'][j] = sp.search(q = radio_stations[i]['query_list_2'][j], limit=1, offset=0, type='track', market=None)['tracks']['items'][0]['id']
-                # Finds the first song that comes up from that artist and adds the ID at position j
-                radio_stations[i]['id_list_table_2'][j] = 'Yes'
-                # Adds 'Yes' to that position in the second list of successes/fails
-            except IndexError:
-                radio_stations[i]['id_list_table_2'][j] = 'No'
-                # If the artist is not on Spotify, adds 'No' at that position in the second list
-                radio_stations[i]['artist_list_updated'][j] = ''
-                # Marks this artist for removal, in order to make a list which can later be used to check that artist names added to Spotify are correct 
-
-    radio_stations[i]['artist_list_updated'] = [x for x in radio_stations[i]['artist_list_updated'] if x != '']
-    # Removes those artists from the updated artist list 
-    radio_stations[i]['id_list'] = [x for x in radio_stations[i]['id_list'] if x != 'NA']
-    # Removes 'NA's from the ID list
-
-#---------------------------------------------------------------------------
-
-### Making a dictionary of dictionaries to contain all of the concatenated radio station information for each regional playlist 
-
-playlists = {
-'combined':{'name':'BBC Introducing'} 
-}
-
-for i in playlists:
-    playlists[i]['id_list'] = []
-    playlists[i]['artist_list'] = []
-    playlists[i]['artist_list_updated'] = []
-    playlists[i]['song_list'] = []
-    playlists[i]['id_list_table'] = []
-    playlists[i]['radio_stations_list'] = []
-    playlists[i]['description'] = []
-    playlists[i]['id_list_table_2'] = []
-
-# Concatenating the id_lists so that all of the IDs can be added to the regional playlist at once
-# At the same time concatenating information for the track list tables 
-
-for i in playlists:
-    for j in radio_stations:
-        if radio_stations[j]['region'] == i:
-            playlists[i]['id_list'].extend(radio_stations[j]['id_list'])
-            playlists[i]['artist_list'].extend(radio_stations[j]['artist_list'])
-            playlists[i]['artist_list_updated'].extend(radio_stations[j]['artist_list_updated'])
-            playlists[i]['song_list'].extend(radio_stations[j]['song_list'])
-            playlists[i]['id_list_table'].extend(radio_stations[j]['id_list_table'])
-            playlists[i]['radio_stations_list'].extend(radio_stations[j]['radio_stations_list'])
-            playlists[i]['id_list_table_2'].extend(radio_stations[j]['id_list_table_2'])
-
-# Making a description for each playlists containing a list of the radio stations included 
-
-for i in playlists:
-    for j in radio_stations:
-        if radio_stations[j]['region'] == i and radio_stations[j]['tracks'] == 'yes':
-                playlists[i]['description'].append(j)
-    playlists[i]['description'] = "songs from " + str(playlists[i]['description'])[1:-1].replace("'","")
-
-#---------------------------------------------------------------------------
-
-### Adding songs to the playlists 
 print('\nMaking playlist...') 
 
-# Getting the list of existing playlists
+sp.user_playlist_create(user = u, name = playlist_name, public=False, collaborative=False, description=playlist_description) 
+
+# Getting the ID of the playlist I just made
 
 existing_playlists = sp.user_playlists(user = u, limit = n, offset = 0)
 existing_playlist_list = []; existing_playlist_id = []
@@ -258,142 +65,13 @@ for i in range(0,n):
         existing_playlist_id.append(existing_playlists['items'][i]['id'])
     except IndexError:
         pass
-# The lists of current playlist names and current playlist IDs are extracted from the user_playlists information iteratively 
+bbc_playlist_id = existing_playlist_id[existing_playlist_list.index(playlist_name)]
 
-playlists_list = [x for x in playlists if len(playlists[x]['song_list']) > 0 and x in playlists_list]
-# The rest of the script is only carried out for the playlists specified in playlists_list at the top
+# Adding songs
 
-for i in playlists_list: 
-
-    # Replacing existing playlists
-
-    if playlists[i]['name'] in existing_playlist_list:
-        # If the current playlist already exists
-        playlists[i]['id'] = existing_playlist_id[existing_playlist_list.index(playlists[i]['name'])]
-        # Set the playlist 'id' key as the existing playlist ID
-        if len(playlists[i]['id_list']) > 100:
-            sp.user_playlist_replace_tracks(user = u, playlist_id = playlists[i]['id'], tracks = playlists[i]['id_list'][:99])
-            sp.user_playlist_add_tracks(user = u, playlist_id = playlists[i]['id'], tracks = playlists[i]['id_list'][100:], position = None)
-            sp.user_playlist_change_details(user = u, playlist_id = playlists[i]['id'], description = playlists[i]['description'])
-            # You can only upload 100 tracks at a time, so if the playlist is longer than that, do it in two lots 
-        else:
-            sp.user_playlist_replace_tracks(user = u, playlist_id = playlists[i]['id'], tracks = playlists[i]['id_list'])
-            sp.user_playlist_change_details(user = u, playlist_id = playlists[i]['id'], description = playlists[i]['description'])
-            # Otherwise, just replace the tracks with the IDs in the id_list, and replace the description in case it has changed 
-
-    # Creating new playlists
-
-    else:
-        # If the playlist doesn't exist 
-        sp.user_playlist_create(user = u, name = playlists[i]['name'], public=False, collaborative=False, description=playlists[i]['description'])
-        # Create a new playlist 
-
-        existing_playlists = sp.user_playlists(user = u, limit = n, offset = 0)
-        existing_playlist_id_new = []
-        for k in range(0,n):
-            try:
-                existing_playlist_id_new.append(existing_playlists['items'][k]['id'])
-            except IndexError:
-                pass
-        # Retrieve the updated playlist information for the user 
-
-        playlists[i]['id'] = str(list(set(existing_playlist_id_new) - set(existing_playlist_id)))[2:-2]
-        # Find the ID of the playlist that's just been created by comparing the lists before and after 
-
-        if len(playlists[i]['id_list']) > 100:
-            sp.user_playlist_add_tracks(user = u, playlist_id = playlists[i]['id'], tracks = playlists[i]['id_list'][:99])
-            sp.user_playlist_add_tracks(user = u, playlist_id = playlists[i]['id'], tracks = playlists[i]['id_list'][100:], position = None)
-        else:
-            sp.user_playlist_add_tracks(user = u, playlist_id = playlists[i]['id'], tracks = playlists[i]['id_list'])
-        # Add the tracks in the id_list, either at once or in two lots 
-
-#---------------------------------------------------------------------------
-
-### Checking artist names are correct and removing false positives
-
-    track_list = []
-    for j in range(0, len(sp.user_playlist_tracks(user = u, playlist_id = playlists[i]['id'], limit = 100)['items'])):
-        #For every track in the playlist that's just been created
-        name = sp.user_playlist_tracks(user = u, playlist_id = playlists[i]['id'])['items'][j]['track']['artists'][0]['name'].partition(' &')[0].replace("'","")
-        # Get the artist name (without & or apostrophes, to match the query)
-        indices = [y for y, x in enumerate(playlists[i]['artist_list']) if x == playlists[i]['artist_list_updated'][j]]
-        # Get the list of indices indicating, for each artist in artist_list_updated, its position(s) in artist_list (they aren't the same list because the tracks not added to the playlist have been deleted from artist_list_updated)
-
-        if name.casefold() != playlists[i]['artist_list_updated'][j].casefold():
-            # If the name of the artist from Spotify doesn't match the artist name from the query used to find it
-            track_list.append(sp.user_playlist_tracks(user = u, playlist_id = playlists[i]['id'])['items'][j]['track']['id'])
-            # Append the corresponding ID to track_list (it will be deleted at the end)
-
-            for x in indices:
-                # For all the positions in artist_list corresponding to this artist in artist_list_updated
-                playlists[i]['id_list_table'][x] = 'No'
-                playlists[i]['id_list_table_2'][x] = 'No' 
-                # Set these positions to 'No' to indicate the song was not successfully found
-
-    sp.user_playlist_remove_all_occurrences_of_tracks(user = u, playlist_id = playlists[i]['id'], tracks = track_list)
-    # Removing all the tracks where the artist name doesn't match the query
-
-# Refreshing the list of existing playlists for the next loop
-
-    existing_playlists = sp.user_playlists(user = u, limit = n, offset = 0)
-    existing_playlist_list = []; existing_playlist_id = []
-    for k in range(0,n):
-        try:
-            existing_playlist_list.append(existing_playlists['items'][k]['name'])
-            existing_playlist_id.append(existing_playlists['items'][k]['id'])
-        except IndexError:
-            pass
-
-#---------------------------------------------------------------------------
-
-### Printing report with success rates for each radio station and playlist
-print('\nCreating report and song lists...')
-
-report = open("report.txt", "w", encoding="utf-8")
-print('not added to playlist:', file=report)
-report.close()
-
-report = open("report.txt", "a", encoding="utf-8")
-no_list = []; days_since = []; track_number = []
-for i in radio_stations:
-    if radio_stations[i]['tracks'] == 'no':
-        no_list.append(i)
-        days_since.append(radio_stations[i]['days_since'])
-        track_number.append(radio_stations[i]['track_number'])
-
-print(str([no + ' (' + days + ' days ago, ' + tracks + ' tracks), ' for no,days,tracks in zip(no_list, days_since, track_number)])[1:-1].replace("'","").replace("( days ago, ","(").replace(",  tracks)",")").replace("), ",")"), file=report)
-print(' ', file=report)
-
-print('added to playlist:', file=report)
-for i in playlists_list:
-    print(i + ': ' + str(len(playlists[i]['id_list_table'])) + ' songs', file=report)
-
-    for j in radio_stations:
-        if radio_stations[j]['region'] == i and radio_stations[j]['tracks'] == 'yes':
-            if i == 'radio 1' or i == 'london' or i == 'wales' or i == 'scotland' or i == 'jazz':
-                print(str(round(radio_stations[j]['id_list_table'].count('Yes')*100/len(radio_stations[j]['id_list_table']))) + '%', file=report)
-
-            if i != 'radio 1' and i != 'london' and i != 'wales' and i != 'scotland' and i != 'jazz':
-                yes_list = []; percentage_list = []
-                yes_list.append(j + ':,')
-                try:
-                    percentage_list.append('{}'.format(round(radio_stations[j]['id_list_table'].count('Yes')*100/len(radio_stations[j]['id_list_table']))) + '%')
-                except ZeroDivisionError:
-                    percentage_list.append('0')
-                print(str([i for x in zip(yes_list,percentage_list) for i in x])[1:-1].replace("'","").replace(",,",""), file=report)
-
-    print(' ', file=report)
-
-report.close()
-
-# Making the track list tables, with successes/fails
-
-for i in playlists_list:
-    playlists[i]['table'] = pd.DataFrame(
-{'Radio Station': playlists[i]['radio_stations_list'],
-'Artist': playlists[i]['artist_list'],
-'Song': playlists[i]['song_list'],
-'Added to Playlist': playlists[i]['id_list_table'],
-'Other Song Added to Playlist': playlists[i]['id_list_table_2']
-})
-    playlists[i]['table'].to_csv('{}'.format(playlists[i]['name'] + ".csv"), index=False, encoding="utf-8-sig")
+# can only add songs 100 at a time
+if len(song_ids) > 100:
+    sp.user_playlist_add_tracks(user = u, playlist_id = bbc_playlist_id, tracks = song_ids[:99])
+    sp.user_playlist_add_tracks(user = u, playlist_id = bbc_playlist_id, tracks = song_ids[100:], position = None)
+else:
+    sp.user_playlist_add_tracks(user = u, playlist_id = bbc_playlist_id, tracks = song_ids)
